@@ -135,6 +135,27 @@ uvicorn api:app --reload --port 8000
 
 > 這跟你可能在對話裡看到的 Claude Artifact 版「Signal Console」是兩個東西：Artifact 版本裡的資料是寫死內嵌的示範資料，而且託管在 Claude 的網頁沙盒環境裡，基於安全限制連不到你本機的 API；`frontend/console.html` 才是真正串接這支 API 的版本，但只能在你本機（或你部署 API 的地方）打開才會有資料。
 
+## Docker
+
+也可以用 Docker 跑 API，不用自己裝 Python 環境。
+
+```bash
+docker compose up --build
+```
+
+啟動後 API 就在 `http://localhost:8000`，`data/` 目錄會掛載成 volume，容器重建或重啟資料庫不會不見。之後打開 `frontend/console.html` 一樣把 API 位址指向 `http://localhost:8000` 即可，前端本身不跑在容器裡，還是直接用瀏覽器開檔案。
+
+抓資料／跑分析／回測這些一次性指令用同一個 image 執行即可，例如：
+
+```bash
+docker compose run --rm api python main.py --symbols BTCUSDT ETHUSDT
+docker compose run --rm api python main.py --all
+docker compose run --rm api python analyze.py BTCUSDT
+docker compose run --rm api python backtest.py BTCUSDT
+```
+
+`Dockerfile` 只是標準的 `python:3.12-slim` + `pip install -r requirements.txt` + `uvicorn` 起服務，沒有特殊技巧；`.dockerignore` 排除了 `data/`（用 volume 掛載，不進 image）、`frontend/`（不需要在容器裡）等。
+
 ## 下一步（尚未實作）
 
 - 更完整的持倉邏輯（訊號翻轉才換邊，而非每根重新進出場），並讓 `backtest.py` 真正模擬「觸發止損價位就提前出場」，而不是只顯示止損價位
