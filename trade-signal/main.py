@@ -7,23 +7,35 @@ from db import get_connection, upsert_klines
 from fetch import FetchError, fetch_futures_klines, fetch_klines, list_futures_perpetual_symbols
 
 # Being polite to Binance's rate limit when --all fires off a few hundred
-# requests back-to-back — the small default symbol list never needed this.
+# requests back-to-back — a small --symbols list never needed this.
 ALL_MODE_REQUEST_DELAY_SECONDS = 0.1
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="抓取加密貨幣行情並存入 PostgreSQL")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--symbols", nargs="+", default=DEFAULT_SYMBOLS, help="交易對，如 BTCUSDT ETHUSDT")
+    group.add_argument(
+        "--symbols",
+        nargs="+",
+        default=None,
+        help=f"改抓現貨這幾個交易對（預設不指定時抓的是全部合約，見 --all）。例：{' '.join(DEFAULT_SYMBOLS)}",
+    )
     group.add_argument(
         "--all",
         action="store_true",
-        help="改抓幣安所有 USDT 本位永續合約（fapi.binance.com），忽略 --symbols，存入時 market='futures'",
+        help="抓幣安所有 USDT 本位永續合約（fapi.binance.com），存入時 market='futures'。"
+        "不指定 --symbols 也不指定 --all 時，這是預設行為",
     )
     parser.add_argument("--interval", default=DEFAULT_INTERVAL, help="K 線週期，如 1h 4h 1d")
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="每個交易對抓取的 K 線根數")
     parser.add_argument("--db", default=DATABASE_URL, help="PostgreSQL 連線字串（預設讀環境變數 DATABASE_URL）")
     args = parser.parse_args()
+
+    # Neither flag given -> default to the full futures universe, not the
+    # small spot list — --symbols (explicit or not) is the only way to get
+    # spot data now.
+    if args.symbols is None and not args.all:
+        args.all = True
 
     if args.all:
         try:
