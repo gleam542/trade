@@ -212,6 +212,11 @@
   .rec-direction.long { background: rgba(var(--good-rgb), 0.14); color: var(--good); }
   .rec-direction.short { background: rgba(var(--critical-rgb), 0.14); color: var(--critical); }
   .rec-direction.none { background: var(--surface); color: var(--ink-muted); border: 1px solid var(--border); }
+  .market-tag {
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 600;
+    padding: 2px 7px; border-radius: 999px; vertical-align: middle;
+    background: rgba(var(--accent-rgb), 0.12); color: var(--accent);
+  }
   .confidence-block { margin-left: auto; min-width: 150px; }
   .confidence-block .label { font-size: 11px; color: var(--ink-muted); display: flex; justify-content: space-between; }
   .confidence-track { height: 6px; border-radius: 3px; background: var(--grid); margin-top: 4px; overflow: hidden; }
@@ -292,7 +297,7 @@
   <section class="panel advisor" id="advisorView" hidden>
     <div class="advisor-head">
       <h2>策略試算</h2>
-      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的<b>現貨</b>交易對，挑出訊號分數最高者作為參考，下方圖表會跟著切換到建議的交易對——也不是保證達成的投資建議。（策略試算固定只看現貨資料，跟上方「市場別」選單選的是現貨還是合約無關）</p>
+      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的交易對（現貨＋合約都算，同一個代號在兩邊各自算一個候選），挑出訊號分數最高者作為參考，下方圖表會跟著切換到建議的交易對——也不是保證達成的投資建議。（掃描範圍跟上方「市場別」選單選的是現貨還是合約無關，選單只影響「交易對」分頁要看哪一邊）</p>
     </div>
     <div class="advisor-body">
       <div class="advisor-form">
@@ -774,12 +779,29 @@
     }
   }
 
+  // /api/advise now scans every tracked symbol across both markets, so a
+  // populated futures universe (python main.py --all) can make one scan
+  // take a few seconds instead of a few milliseconds. Debounce the
+  // input-triggered calls (scheduleLoadAdvice) so typing a number doesn't
+  // fire one overlapping request per keystroke, and drop any response that
+  // isn't from the most recent request in case two are ever in flight
+  // together anyway.
+  let adviceDebounceTimer = null;
+  let adviceRequestSeq = 0;
+  function scheduleLoadAdvice() {
+    clearTimeout(adviceDebounceTimer);
+    adviceDebounceTimer = setTimeout(loadAdvice, 400);
+  }
+
   async function loadAdvice() {
+    const seq = ++adviceRequestSeq;
     const capital = Math.max(1, Number(document.getElementById("inputCapital").value) || 0);
     const profitPct = Math.max(0.01, Number(document.getElementById("inputProfit").value) || 0);
     const hours = Math.max(1, Number(document.getElementById("inputHours").value) || 1);
+    advisorResult.innerHTML = `<p class="placeholder-text">掃描全部交易對中，資料多時可能要幾秒鐘…</p>`;
     try {
       const adv = await apiGet(`/api/advise?capital=${capital}&profit_pct=${profitPct}&hours=${hours}`);
+      if (seq !== adviceRequestSeq) return; // a newer request has since started; this response is stale
       clearError();
       connDot.className = "conn-dot ok";
       const pick = adv.pick;
@@ -790,7 +812,7 @@
             <div class="rec-symbol"><span class="eyebrow">建議商品</span><span class="value">—</span></div>
             <div class="rec-direction none">目前無明確訊號</div>
           </div>
-          <p class="rec-scope-note">※ 掃描全部追蹤中的現貨交易對，跟「交易對」分頁選的是哪一個、市場別選單選的是現貨還是合約都無關</p>
+          <p class="rec-scope-note">※ 掃描全部追蹤中的交易對（現貨＋合約），跟「交易對」分頁選的是哪一個、市場別選單選的是現貨還是合約都無關</p>
           <div class="pace-note unknown">目前追蹤的交易對 RSI／MACD／布林通道／KD／費波那契回撤皆未觸發多空訊號，建議先觀望。</div>
         `;
         renderCandidatesChart([], adv.requiredHourlyPct);
@@ -814,16 +836,17 @@
           paceText = `目標所需每小時報酬率（${adv.requiredHourlyPct.toFixed(3)}%）高於歷史同方向平均每小時報酬率（${stats.avgReturnPct.toFixed(3)}%），可能需要更長時間或承擔更高風險才能達成。`;
         }
       }
+      const pickMarketLabel = pick.market === "spot" ? "現貨" : "合約";
       advisorResult.innerHTML = `
         <div class="rec-top">
-          <div class="rec-symbol"><span class="eyebrow">建議商品</span><span class="value">${pick.symbol}</span></div>
+          <div class="rec-symbol"><span class="eyebrow">建議商品</span><span class="value">${pick.symbol} <span class="market-tag">${pickMarketLabel}</span></span></div>
           <div class="rec-direction ${pick.direction}">${dirLabel}</div>
           <div class="confidence-block">
             <span class="label"><span>信心率</span><span>${pick.confidence.toFixed(0)}%</span></span>
             <div class="confidence-track"><div class="confidence-fill" style="width:${pick.confidence}%"></div></div>
           </div>
         </div>
-        <p class="rec-scope-note">※ 掃描全部追蹤中的現貨交易對後的結果——下方圖表已自動切換到 ${pick.symbol}（現貨）</p>
+        <p class="rec-scope-note">※ 掃描全部追蹤中的交易對（現貨＋合約）後的結果——下方圖表已自動切換到 ${pick.symbol}（${pickMarketLabel}）</p>
         <div class="rec-stats">
           <div class="rec-stat"><span class="label">預計獲利金額</span><span class="value tabular">${adv.expectedProfitUsdt.toFixed(2)} USDT</span></div>
           <div class="rec-stat"><span class="label">目標所需每小時報酬率</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
@@ -836,6 +859,7 @@
       renderCandidatesChart(adv.candidates, adv.requiredHourlyPct);
       if (!advisorView.hidden) await syncChartsToAdvisorPick();
     } catch (e) {
+      if (seq !== adviceRequestSeq) return;
       showError(e.message);
     }
   }
@@ -849,7 +873,12 @@
     }
 
     const rowH = 34;
-    const padL = 92, padR = 60, padT = 18, padB = 10;
+    // Real futures symbols run much longer than the original spot-only
+    // list (e.g. "1000SHIBUSDT") — size the label column to the longest
+    // one actually being rendered instead of a fixed width, so a long
+    // symbol name doesn't get clipped off the chart's left edge.
+    const longestLabelLen = Math.max(...candidates.map((c) => `${c.symbol} 合 多`.length));
+    const padL = Math.max(92, Math.min(220, 34 + longestLabelLen * 7)), padR = 60, padT = 18, padB = 10;
     const W = 960;
     const H = padT + padB + candidates.length * rowH;
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
@@ -875,7 +904,8 @@
       const cy = padT + i * rowH + rowH / 2;
       const color = c.direction === "long" ? "var(--good)" : "var(--critical)";
       const label = el("text", { x: padL - 10, y: (cy + 4).toFixed(2), "font-size": 11, "text-anchor": "end" });
-      label.textContent = `${c.symbol} ${c.direction === "long" ? "多" : "空"}`;
+      const marketAbbr = c.market === "spot" ? "現" : "合";
+      label.textContent = `${c.symbol} ${marketAbbr} ${c.direction === "long" ? "多" : "空"}`;
       svg.appendChild(label);
 
       if (c.stats.trades > 0) {
@@ -984,9 +1014,11 @@
   // recommending, kept in sync as the advisor's inputs change.
   async function syncChartsToAdvisorPick() {
     if (advisorPick) {
-      chartContextNote.textContent = `↑ 以上「建議商品」與下方圖表都對應同一個交易對：${advisorPick.symbol}（現貨）`;
-      // 策略試算固定只看現貨，跟 currentMarket（畫面上選的市場別）無關。
-      await renderSymbolData(advisorPick.symbol, "spot");
+      const marketLabel = advisorPick.market === "spot" ? "現貨" : "合約";
+      chartContextNote.textContent = `↑ 以上「建議商品」與下方圖表都對應同一個交易對：${advisorPick.symbol}（${marketLabel}）`;
+      // 用建議本身附帶的 market，而非畫面上「交易對」分頁目前選的 currentMarket
+      // ——建議可能是合約，即使使用者當下正在看現貨分頁（反之亦然）。
+      await renderSymbolData(advisorPick.symbol, advisorPick.market);
     } else {
       chartContextNote.textContent = "目前無明確訊號，下方圖表維持顯示先前檢視的交易對。";
     }
@@ -995,7 +1027,7 @@
   advisorTab.addEventListener("click", activateAdvisorTab);
   document.getElementById("reconnectBtn").addEventListener("click", connect);
   ["inputCapital", "inputProfit", "inputHours"].forEach((id) => {
-    document.getElementById(id).addEventListener("input", loadAdvice);
+    document.getElementById(id).addEventListener("input", scheduleLoadAdvice);
   });
 
   connect();

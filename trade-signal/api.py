@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backtest import backtest as run_backtest
 from config import DB_PATH, DEFAULT_SYMBOLS
 from db import get_connection, read_ohlc
-from signals import generate_signal
+from signals import generate_signal, generate_signal_series
 
 Market = Literal["spot", "futures"]
 
@@ -100,10 +100,13 @@ def get_chart(
     highs = [row[2] for row in rows]
     lows = [row[3] for row in rows]
     closes = [row[4] for row in rows]
+    # One O(n) pass instead of recomputing every indicator from scratch at
+    # each bar (see generate_signal_series()'s docstring).
+    series = generate_signal_series(closes, highs=highs, lows=lows)
     bars = []
     for i, (open_time, o, h, l, c) in enumerate(rows):
         entry = {"t": open_time, "o": o, "h": h, "l": l, "c": c}
-        result = generate_signal(closes[: i + 1], highs=highs[: i + 1], lows=lows[: i + 1])
+        result = series[i]
         if result["rsi"] is not None:
             entry.update(
                 rsi=result["rsi"],
@@ -181,9 +184,11 @@ def advise(
     db: str = Query(default=DB_PATH),
 ):
     """Cross-symbol screener: among tracked symbols with a non-neutral
-    signal, rank candidates that historically clear the requested pace
-    (from backtest()'s by_direction breakdown) ahead of ones that don't,
-    then by confidence (|score| / 5) within each tier — so the pick
+    signal — spot AND futures both, so a symbol tracked in both markets
+    (e.g. spot BTCUSDT and futures BTCUSDT) shows up as two independent
+    candidates — rank candidates that historically clear the requested
+    pace (from backtest()'s by_direction breakdown) ahead of ones that
+    don't, then by confidence (|score| / 5) within each tier — so the pick
     actually responds to capital/profit_pct/hours instead of only
     annotating a fixed, target-independent ranking. Still not a
     guarantee: it's "which of these signals historically kept up with
@@ -191,42 +196,44 @@ def advise(
     required_hourly_pct = ((1 + profit_pct / 100) ** (1 / hours) - 1) * 100
 
     candidates = []
-    for symbol in _known_symbols(db):
-        conn = get_connection(db)
-        try:
-            highs, lows, closes = read_ohlc(conn, symbol)
-        finally:
-            conn.close()
-        if not closes:
-            continue
+    for market in ("spot", "futures"):
+        for symbol in _known_symbols(db, market):
+            conn = get_connection(db)
+            try:
+                highs, lows, closes = read_ohlc(conn, symbol, market=market)
+            finally:
+                conn.close()
+            if not closes:
+                continue
 
-        latest = generate_signal(closes, highs=highs, lows=lows)
-        if latest["signal"] not in ("long", "short"):
-            continue
+            latest = generate_signal(closes, highs=highs, lows=lows)
+            if latest["signal"] not in ("long", "short"):
+                continue
 
-        bt = run_backtest(closes, highs=highs, lows=lows)
-        direction_stats = bt["by_direction"][latest["signal"]]
+            bt = run_backtest(closes, highs=highs, lows=lows)
+            direction_stats = bt["by_direction"][latest["signal"]]
 
-        candidates.append(
-            {
-                "symbol": symbol,
-                "direction": latest["signal"],
-                "score": latest["score"],
-                "confidence": abs(latest["score"]) / 5 * 100,
-                "reason": latest["reason"],
-                "atr": latest["atr"],
-                "stopLoss": latest["stop_loss"],
-                "stats": {
-                    "trades": direction_stats["trades"],
-                    "winRate": direction_stats["win_rate"],
-                    "avgReturnPct": (
-                        direction_stats["avg_return"] * 100
-                        if direction_stats["avg_return"] is not None
-                        else None
-                    ),
-                },
-            }
-        )
+            candidates.append(
+                {
+                    "symbol": symbol,
+                    "market": market,
+                    "direction": latest["signal"],
+                    "score": latest["score"],
+                    "confidence": abs(latest["score"]) / 5 * 100,
+                    "reason": latest["reason"],
+                    "atr": latest["atr"],
+                    "stopLoss": latest["stop_loss"],
+                    "stats": {
+                        "trades": direction_stats["trades"],
+                        "winRate": direction_stats["win_rate"],
+                        "avgReturnPct": (
+                            direction_stats["avg_return"] * 100
+                            if direction_stats["avg_return"] is not None
+                            else None
+                        ),
+                    },
+                }
+            )
 
     def meets_pace(c: dict) -> bool:
         avg = c["stats"]["avgReturnPct"]
