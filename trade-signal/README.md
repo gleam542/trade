@@ -103,7 +103,7 @@ uvicorn api:app --reload --port 8000
 - `GET /api/signal/{symbol}` — 該交易對目前的 `generate_signal()` 結果
 - `GET /api/chart/{symbol}?limit=300` — 逐根 K 線的 OHLC + 指標 + 當下（不含未來）訊號 + 止損價位，給畫圖用
 - `GET /api/backtest/{symbol}?...` — 呼叫 `backtest()`，查詢參數對應 `--rsi-period` 等 CLI 參數
-- `GET /api/advise?capital=&profit_pct=&hours=` — 跨交易對掃描：本金、目標盈利 %、預計花費小時數，換算成每小時所需報酬率，挑出目前訊號分數最高的交易對，並附上該方向在 `backtest()` 回測中的歷史勝率／平均報酬、以及 ATR 止損價位做參考（`backtest()` 現在會額外回傳 `by_direction: {long, short}` 的細分統計）
+- `GET /api/advise?capital=&profit_pct=&hours=` — 跨交易對掃描：本金、目標盈利 %、預計花費小時數，換算成每小時所需報酬率（`requiredHourlyPct`），排序時先分兩層——「歷史上該方向的平均每小時報酬（來自 `backtest()` 的 `by_direction` 細分）有沒有達到這個目標」排前面，同樣有達到／同樣沒達到的再比訊號分數的信心度（`|score| / 3`），最後比勝率。也就是說輸入的本金／目標盈利／小時數改變時，`requiredHourlyPct` 跟著變，兩層排序的結果也可能跟著換人——不是固定訊號分數排序、只是換個數字顯示而已。附上該方向的歷史勝率／平均報酬、以及 ATR 止損價位做參考
 
 啟動後可以打開 `http://localhost:8000/docs` 看自動產生的 API 文件。CORS 預設全開（`allow_origins=["*"]`），方便本機開發時用不同 port 或直接開檔案存取；正式對外提供服務前要收窄。
 
