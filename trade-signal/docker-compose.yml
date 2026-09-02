@@ -25,5 +25,15 @@ services:
       db:
         condition: service_healthy
 
+  scheduler:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://trade:trade@db:5432/trade_signal
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "-c", "while true; do python main.py; sleep 900; done"]
+    restart: unless-stopped
+
 volumes:
   db-data:
