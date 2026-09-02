@@ -72,13 +72,32 @@ def main() -> None:
     parser.add_argument("--symbols", nargs="+", default=DEFAULT_SYMBOLS, help="要回測的交易對")
     parser.add_argument("--db", default=DB_PATH, help="SQLite 資料庫檔案路徑")
     parser.add_argument("--min-bars", type=int, default=DEFAULT_MIN_BARS, help="開始產生訊號前所需的最少根數（暖機期）")
+    parser.add_argument("--rsi-period", type=int, default=14, help="RSI 週期")
+    parser.add_argument("--rsi-oversold", type=float, default=30.0, help="RSI 超賣門檻")
+    parser.add_argument("--rsi-overbought", type=float, default=70.0, help="RSI 超買門檻")
+    parser.add_argument("--macd-fast", type=int, default=12, help="MACD 快線 EMA 週期")
+    parser.add_argument("--macd-slow", type=int, default=26, help="MACD 慢線 EMA 週期")
+    parser.add_argument("--macd-signal", type=int, default=9, help="MACD 訊號線 EMA 週期")
+    parser.add_argument("--bb-period", type=int, default=20, help="布林通道週期")
+    parser.add_argument("--bb-std", type=float, default=2.0, help="布林通道標準差倍數")
     args = parser.parse_args()
+
+    signal_kwargs = dict(
+        rsi_period=args.rsi_period,
+        rsi_oversold=args.rsi_oversold,
+        rsi_overbought=args.rsi_overbought,
+        macd_fast=args.macd_fast,
+        macd_slow=args.macd_slow,
+        macd_signal=args.macd_signal,
+        bb_period=args.bb_period,
+        bb_std=args.bb_std,
+    )
 
     conn = get_connection(args.db)
     try:
         for symbol in args.symbols:
             closes = read_closes(conn, symbol)
-            result = backtest(closes, min_bars=args.min_bars)
+            result = backtest(closes, min_bars=args.min_bars, **signal_kwargs)
             if result["bars_tested"] == 0:
                 print(f"{symbol}: 資料不足，無法回測（需要至少 {args.min_bars + 2} 根 K 線）")
                 continue
