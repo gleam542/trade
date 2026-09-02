@@ -1,0 +1,29 @@
+import argparse
+
+from config import DB_PATH, DEFAULT_SYMBOLS
+from db import get_connection, read_closes
+from signals import generate_signal
+
+SIGNAL_LABELS = {"long": "做多", "short": "做空", "neutral": "觀望"}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="根據資料庫中的 K 線資料，用 RSI + MACD 判斷多空訊號")
+    parser.add_argument("--symbols", nargs="+", default=DEFAULT_SYMBOLS, help="要分析的交易對")
+    parser.add_argument("--db", default=DB_PATH, help="SQLite 資料庫檔案路徑")
+    args = parser.parse_args()
+
+    conn = get_connection(args.db)
+    try:
+        for symbol in args.symbols:
+            closes = read_closes(conn, symbol)
+            result = generate_signal(closes)
+            label = SIGNAL_LABELS[result["signal"]]
+            print(f"{symbol}: {label}  (RSI={result['rsi']}, MACD={result['macd']}, 訊號線={result['macd_signal']})")
+            print(f"  理由：{result['reason']}")
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    main()
