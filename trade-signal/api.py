@@ -27,9 +27,14 @@ app.add_middleware(
 
 
 def _known_symbols(db_path: str) -> list[str]:
+    # Scoped to spot data only, so a DB that also holds `python main.py --all`'s
+    # futures universe doesn't flood every endpoint (and the frontend's tab
+    # list) with a few hundred extra symbols nothing else here is built for.
     conn = get_connection(db_path)
     try:
-        rows = conn.execute("SELECT DISTINCT symbol FROM klines ORDER BY symbol").fetchall()
+        rows = conn.execute(
+            "SELECT DISTINCT symbol FROM klines WHERE market = 'spot' ORDER BY symbol"
+        ).fetchall()
     finally:
         conn.close()
     return [r[0] for r in rows] or list(DEFAULT_SYMBOLS)

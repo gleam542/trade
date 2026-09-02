@@ -6,7 +6,7 @@
 
 ## 資料來源
 
-Binance 公開 REST API（`/api/v3/klines`），不需要 API key。
+預設抓 Binance 現貨公開 REST API（`/api/v3/klines`），不需要 API key。也可以改抓 Binance USDT 本位永續合約（`fapi.binance.com`）——見下方 `--all`。
 
 ## 安裝
 
@@ -21,12 +21,15 @@ python main.py --symbols BTCUSDT ETHUSDT --interval 1h --limit 500
 ```
 
 參數：
-- `--symbols`：要抓的交易對，預設 `BTCUSDT ETHUSDT BNBUSDT SOLUSDT XRPUSDT`
+- `--symbols`：要抓的交易對，預設 `BTCUSDT ETHUSDT BNBUSDT SOLUSDT XRPUSDT`（跟 `--all` 互斥，兩者只能擇一）
+- `--all`：改抓幣安**所有**目前在交易中的 USDT 本位永續合約（`fapi.binance.com/fapi/v1/exchangeInfo` 篩出 `contractType=PERPETUAL`、`quoteAsset=USDT`、`status=TRADING`，約三、四百個），忽略 `--symbols`，存入時 `market` 欄位會是 `futures`。因為一次要打幾百次 API，`--all` 模式下每個交易對之間會停頓 0.1 秒才發下一個請求，避免觸發 Binance 限流；一輪跑下來大約數十秒
 - `--interval`：K 線週期（`1m` `5m` `1h` `4h` `1d` 等），預設 `1h`
 - `--limit`：每個交易對抓取的根數（最大 1000），預設 `500`
 - `--db`：SQLite 檔案路徑，預設 `data/trade_signal.db`
 
-資料會存到 `klines` 資料表，以 `(symbol, open_time)` 為主鍵，重複執行會更新既有資料而不會產生重複列。
+資料會存到 `klines` 資料表，以 `(market, symbol, open_time)` 為主鍵，重複執行會更新既有資料而不會產生重複列——`market` 讓現貨（`spot`，預設）跟合約（`futures`，`--all` 或未來的 `--symbols ... --market futures`）的同名交易對（例如現貨 BTCUSDT 跟合約 BTCUSDT）分開存放，不會互相覆蓋。舊版（沒有 `market` 欄位）的資料庫第一次被 `get_connection()` 打開時會自動遷移：既有資料一律標記成 `market='spot'`，不會遺失。
+
+**注意**：`analyze.py`／`backtest.py`／`api.py`／前端目前都只讀 `market='spot'` 的資料（`read_ohlc()`／`read_closes()` 的 `market` 參數預設 `'spot'`），`--all` 抓回來的合約資料目前只是存起來，還沒接進分析／回測／策略試算——這是刻意的，避免這幾個地方突然要處理幾百個交易對；之後如果要分析合約資料，需要另外改這些呼叫的 `market="futures"`。
 
 單一交易對抓取失敗（連不到 Binance、被限流、交易對打錯字等）不會中斷整批：`main.py` 會印出那個交易對的錯誤原因、跳過它，繼續抓其餘交易對；跑完後如果有任何交易對失敗，會印出失敗清單並以非 0 狀態碼結束（方便 cron 或監控腳本偵測），已成功抓到的交易對照樣會存進資料庫。
 
@@ -34,6 +37,7 @@ python main.py --symbols BTCUSDT ETHUSDT --interval 1h --limit 500
 
 | 欄位 | 說明 |
 |---|---|
+| market | 市場別，`spot`（現貨，預設）或 `futures`（USDT 本位永續合約） |
 | symbol | 交易對，如 BTCUSDT |
 | open_time | K 線開盤時間（毫秒時間戳） |
 | open / high / low / close | 開高低收價 |
