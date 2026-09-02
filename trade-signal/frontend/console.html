@@ -107,7 +107,7 @@
   }
   .tab:hover { background: rgba(var(--accent-rgb), 0.08); color: var(--ink); }
   .tab.active { background: var(--accent); color: #fff; }
-  #advisorTab { margin-left: 8px; padding-left: 18px; border-left: 1px solid var(--border); border-radius: 7px; }
+  #advisorTab { margin-right: 8px; padding-right: 18px; border-right: 1px solid var(--border); border-radius: 7px; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .local-banner {
@@ -273,12 +273,49 @@
   </div>
 
   <nav class="symbol-tabs" role="tablist" aria-label="檢視">
-    <div id="symbolTabs" style="display:contents"></div>
     <button class="tab" id="advisorTab" data-view="advisor" role="tab" aria-selected="false">策略試算</button>
+    <div id="symbolTabs" style="display:contents"></div>
   </nav>
 
-  <div id="symbolView">
-  <p class="rec-scope-note">↓ 以下「最新判斷」與圖表只反映上面目前選取的交易對；跨交易對的推薦掃描在另一個分頁「策略試算」</p>
+  <section class="panel advisor" id="advisorView" hidden>
+    <div class="advisor-head">
+      <h2>策略試算</h2>
+      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的交易對，挑出訊號分數最高者作為參考，下方圖表會跟著切換到建議的交易對——也不是保證達成的投資建議。</p>
+    </div>
+    <div class="advisor-body">
+      <div class="advisor-form">
+        <div class="field">
+          <label for="inputCapital">投入金額</label>
+          <div class="input-row"><input type="number" id="inputCapital" value="1000" min="1" step="1"><span class="unit">USDT</span></div>
+        </div>
+        <div class="field">
+          <label for="inputProfit">預計盈利</label>
+          <div class="input-row"><input type="number" id="inputProfit" value="5" min="0.1" step="0.1"><span class="unit">%</span></div>
+        </div>
+        <div class="field">
+          <label for="inputHours">預計多少小時達到</label>
+          <div class="input-row"><input type="number" id="inputHours" value="24" min="1" step="1"><span class="unit">小時</span></div>
+        </div>
+      </div>
+      <div class="advisor-result" id="advisorResult">
+        <p class="placeholder-text">尚未連線至 API。</p>
+      </div>
+    </div>
+    <div class="panel-head" style="margin-top:4px;">
+      <h2>各交易對每小時報酬率比較</h2>
+      <ul class="legend">
+        <li><span class="key" style="background:var(--good)"></span>做多方向歷史每小時報酬率</li>
+        <li><span class="key" style="background:var(--critical)"></span>做空方向歷史每小時報酬率</li>
+        <li style="color:var(--ink-secondary)">┊ 目標所需每小時報酬率</li>
+      </ul>
+    </div>
+    <div class="chart-wrap" id="candidatesWrap">
+      <svg id="candidatesSvg" viewBox="0 0 960 40" preserveAspectRatio="none" role="img" aria-label="各交易對歷史每小時報酬率與目標每小時報酬率比較圖"></svg>
+    </div>
+    <p class="advisor-disclaimer">信心率＝目前 RSI／MACD／布林通道三項指標中同向觸發的比例；歷史每小時報酬率來自 <span class="num">backtest.py</span> 對你資料庫裡實際儲存資料的回測，並非保證。本區塊不構成投資建議。</p>
+  </section>
+
+  <p class="rec-scope-note" id="chartContextNote"></p>
   <section class="summary-strip" id="summaryStrip" aria-live="polite"></section>
 
   <section class="panel" id="pricePanel">
@@ -334,45 +371,6 @@
         <tbody id="tableBody"></tbody>
       </table>
     </div>
-  </section>
-  </div>
-
-  <section class="panel advisor" id="advisorView" hidden>
-    <div class="advisor-head">
-      <h2>策略試算</h2>
-      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的交易對，挑出訊號分數最高者作為參考——跟「交易對」分頁選的是哪一個無關，也不是保證達成的投資建議。</p>
-    </div>
-    <div class="advisor-body">
-      <div class="advisor-form">
-        <div class="field">
-          <label for="inputCapital">投入金額</label>
-          <div class="input-row"><input type="number" id="inputCapital" value="1000" min="1" step="1"><span class="unit">USDT</span></div>
-        </div>
-        <div class="field">
-          <label for="inputProfit">預計盈利</label>
-          <div class="input-row"><input type="number" id="inputProfit" value="5" min="0.1" step="0.1"><span class="unit">%</span></div>
-        </div>
-        <div class="field">
-          <label for="inputHours">預計多少小時達到</label>
-          <div class="input-row"><input type="number" id="inputHours" value="24" min="1" step="1"><span class="unit">小時</span></div>
-        </div>
-      </div>
-      <div class="advisor-result" id="advisorResult">
-        <p class="placeholder-text">尚未連線至 API。</p>
-      </div>
-    </div>
-    <div class="panel-head" style="margin-top:4px;">
-      <h2>各交易對每小時報酬率比較</h2>
-      <ul class="legend">
-        <li><span class="key" style="background:var(--good)"></span>做多方向歷史每小時報酬率</li>
-        <li><span class="key" style="background:var(--critical)"></span>做空方向歷史每小時報酬率</li>
-        <li style="color:var(--ink-secondary)">┊ 目標所需每小時報酬率</li>
-      </ul>
-    </div>
-    <div class="chart-wrap" id="candidatesWrap">
-      <svg id="candidatesSvg" viewBox="0 0 960 40" preserveAspectRatio="none" role="img" aria-label="各交易對歷史每小時報酬率與目標每小時報酬率比較圖"></svg>
-    </div>
-    <p class="advisor-disclaimer">信心率＝目前 RSI／MACD／布林通道三項指標中同向觸發的比例；歷史每小時報酬率來自 <span class="num">backtest.py</span> 對你資料庫裡實際儲存資料的回測，並非保證。本區塊不構成投資建議。</p>
   </section>
 
   <footer class="foot">資料來自本機 API，僅供技術示範，不構成投資建議。 · <span class="num">trade-signal</span></footer>
@@ -678,13 +676,8 @@
   });
 
   // ---------- data loading ----------
-  async function loadSymbol(symbol) {
+  async function renderSymbolData(symbol) {
     current = symbol;
-    document.querySelectorAll("#symbolTabs .tab").forEach((b) => {
-      const active = b.dataset.symbol === symbol;
-      b.classList.toggle("active", active);
-      b.setAttribute("aria-selected", String(active));
-    });
     try {
       const chart = await apiGet(`/api/chart/${encodeURIComponent(symbol)}?limit=400`);
       const bars = chart.bars.filter((d) => d.rsi !== undefined);
@@ -713,6 +706,7 @@
       clearError();
       connDot.className = "conn-dot ok";
       const pick = adv.pick;
+      advisorPick = pick;
       if (!pick) {
         advisorResult.innerHTML = `
           <div class="rec-top">
@@ -723,6 +717,7 @@
           <div class="pace-note unknown">目前追蹤的交易對 RSI／MACD／布林通道皆未觸發多空訊號，建議先觀望。</div>
         `;
         renderCandidatesChart([], adv.requiredHourlyPct);
+        if (!advisorView.hidden) await syncChartsToAdvisorPick();
         return;
       }
       const dirLabel = pick.direction === "long" ? "做多" : "做空";
@@ -751,7 +746,7 @@
             <div class="confidence-track"><div class="confidence-fill" style="width:${pick.confidence}%"></div></div>
           </div>
         </div>
-        <p class="rec-scope-note">※ 掃描全部追蹤中的交易對後的結果，跟「交易對」分頁選的是哪一個無關（該分頁目前選取：${current ?? "尚未選取"}）</p>
+        <p class="rec-scope-note">※ 掃描全部追蹤中的交易對後的結果——下方圖表已自動切換到 ${pick.symbol}</p>
         <div class="rec-stats">
           <div class="rec-stat"><span class="label">預計獲利金額</span><span class="value tabular">${adv.expectedProfitUsdt.toFixed(2)} USDT</span></div>
           <div class="rec-stat"><span class="label">目標所需每小時報酬率</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
@@ -762,6 +757,7 @@
         <div class="pace-note ${paceClass}">${paceText}</div>
       `;
       renderCandidatesChart(adv.candidates, adv.requiredHourlyPct);
+      if (!advisorView.hidden) await syncChartsToAdvisorPick();
     } catch (e) {
       showError(e.message);
     }
@@ -839,13 +835,10 @@
         `<button class="tab${idx === 0 ? " active" : ""}" data-symbol="${s}" role="tab" aria-selected="${idx === 0}">${s}</button>`
       ).join("");
       symbolTabs.querySelectorAll(".tab").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          showSymbolView();
-          loadSymbol(btn.dataset.symbol);
-        });
+        btn.addEventListener("click", () => activateSymbolTab(btn.dataset.symbol));
       });
       if (symbols.length) {
-        await loadSymbol(symbols[0]);
+        await activateSymbolTab(symbols[0]);
         await loadAdvice();
       }
     } catch (e) {
@@ -853,29 +846,48 @@
     }
   }
 
-  const symbolView = document.getElementById("symbolView");
   const advisorView = document.getElementById("advisorView");
   const advisorTab = document.getElementById("advisorTab");
+  const chartContextNote = document.getElementById("chartContextNote");
+  let advisorPick = null;
 
-  function showSymbolView() {
-    symbolView.hidden = false;
+  async function activateSymbolTab(symbol) {
     advisorView.hidden = true;
     advisorTab.classList.remove("active");
     advisorTab.setAttribute("aria-selected", "false");
+    document.querySelectorAll("#symbolTabs .tab").forEach((b) => {
+      const active = b.dataset.symbol === symbol;
+      b.classList.toggle("active", active);
+      b.setAttribute("aria-selected", String(active));
+    });
+    chartContextNote.textContent = "";
+    await renderSymbolData(symbol);
   }
 
-  function showAdvisorView() {
-    symbolView.hidden = true;
+  async function activateAdvisorTab() {
     advisorView.hidden = false;
+    advisorTab.classList.add("active");
+    advisorTab.setAttribute("aria-selected", "true");
     document.querySelectorAll("#symbolTabs .tab").forEach((b) => {
       b.classList.remove("active");
       b.setAttribute("aria-selected", "false");
     });
-    advisorTab.classList.add("active");
-    advisorTab.setAttribute("aria-selected", "true");
+    await syncChartsToAdvisorPick();
   }
 
-  advisorTab.addEventListener("click", showAdvisorView);
+  // Like the symbol tabs, the advisor tab shows the price/RSI/MACD charts
+  // and data table too — for whichever symbol /api/advise is currently
+  // recommending, kept in sync as the advisor's inputs change.
+  async function syncChartsToAdvisorPick() {
+    if (advisorPick) {
+      chartContextNote.textContent = `↑ 以上「建議商品」與下方圖表都對應同一個交易對：${advisorPick.symbol}`;
+      await renderSymbolData(advisorPick.symbol);
+    } else {
+      chartContextNote.textContent = "目前無明確訊號，下方圖表維持顯示先前檢視的交易對。";
+    }
+  }
+
+  advisorTab.addEventListener("click", activateAdvisorTab);
   document.getElementById("reconnectBtn").addEventListener("click", connect);
   ["inputCapital", "inputProfit", "inputHours"].forEach((id) => {
     document.getElementById(id).addEventListener("input", loadAdvice);
