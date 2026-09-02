@@ -351,17 +351,17 @@
       </div>
     </div>
     <div class="panel-head" style="margin-top:4px;">
-      <h2>各交易對步調比較</h2>
+      <h2>各交易對每小時報酬率比較</h2>
       <ul class="legend">
-        <li><span class="key" style="background:var(--good)"></span>做多方向歷史步調</li>
-        <li><span class="key" style="background:var(--critical)"></span>做空方向歷史步調</li>
-        <li style="color:var(--ink-secondary)">┊ 目標所需步調</li>
+        <li><span class="key" style="background:var(--good)"></span>做多方向歷史每小時報酬率</li>
+        <li><span class="key" style="background:var(--critical)"></span>做空方向歷史每小時報酬率</li>
+        <li style="color:var(--ink-secondary)">┊ 目標所需每小時報酬率</li>
       </ul>
     </div>
     <div class="chart-wrap" id="candidatesWrap">
-      <svg id="candidatesSvg" viewBox="0 0 960 40" preserveAspectRatio="none" role="img" aria-label="各交易對歷史步調與目標步調比較圖"></svg>
+      <svg id="candidatesSvg" viewBox="0 0 960 40" preserveAspectRatio="none" role="img" aria-label="各交易對歷史每小時報酬率與目標每小時報酬率比較圖"></svg>
     </div>
-    <p class="advisor-disclaimer">信心率＝目前 RSI／MACD／布林通道三項指標中同向觸發的比例；歷史步調來自 <span class="num">backtest.py</span> 對你資料庫裡實際儲存資料的回測，並非保證。本區塊不構成投資建議。</p>
+    <p class="advisor-disclaimer">信心率＝目前 RSI／MACD／布林通道三項指標中同向觸發的比例；歷史每小時報酬率來自 <span class="num">backtest.py</span> 對你資料庫裡實際儲存資料的回測，並非保證。本區塊不構成投資建議。</p>
   </section>
 
   <footer class="foot">資料來自本機 API，僅供技術示範，不構成投資建議。 · <span class="num">trade-signal</span></footer>
@@ -694,17 +694,17 @@
       const stats = pick.stats;
       const hasHistory = stats.trades > 0;
       let paceClass = "unknown";
-      let paceText = "此方向尚無歷史紀錄可比對步調。";
+      let paceText = "此方向尚無歷史紀錄可比對每小時報酬率。";
       if (hasHistory) {
         if (stats.avgReturnPct <= 0) {
           paceClass = "stretch";
-          paceText = `注意：此方向在歷史回測中平均每小時報酬為 ${stats.avgReturnPct.toFixed(3)}%（淨虧損），並非單純「步調較慢」——歷史上這個訊號方向本身就不獲利，與能否達成 ${hours} 小時的目標無關。`;
+          paceText = `注意：此方向在歷史回測中平均每小時報酬為 ${stats.avgReturnPct.toFixed(3)}%（淨虧損），並非單純「報酬率偏低」——歷史上這個訊號方向本身就不獲利，與能否達成 ${hours} 小時的目標無關。`;
         } else if (stats.avgReturnPct >= adv.requiredHourlyPct) {
           paceClass = "ok";
-          paceText = `目標所需步調（每小時 ${adv.requiredHourlyPct.toFixed(3)}%）不高於歷史同方向平均步調（每小時 ${stats.avgReturnPct.toFixed(3)}%），相對貼近過去節奏。`;
+          paceText = `目標所需每小時報酬率（${adv.requiredHourlyPct.toFixed(3)}%）不高於歷史同方向平均每小時報酬率（${stats.avgReturnPct.toFixed(3)}%），相對貼近過去節奏。`;
         } else {
           paceClass = "stretch";
-          paceText = `目標所需步調（每小時 ${adv.requiredHourlyPct.toFixed(3)}%）高於歷史同方向平均步調（每小時 ${stats.avgReturnPct.toFixed(3)}%），可能需要更長時間或承擔更高風險才能達成。`;
+          paceText = `目標所需每小時報酬率（${adv.requiredHourlyPct.toFixed(3)}%）高於歷史同方向平均每小時報酬率（${stats.avgReturnPct.toFixed(3)}%），可能需要更長時間或承擔更高風險才能達成。`;
         }
       }
       advisorResult.innerHTML = `
@@ -719,8 +719,8 @@
         <p class="rec-scope-note">※ 掃描全部追蹤中的交易對後的結果，與上面目前選取的分頁無關（目前分頁：${current ?? "尚未選取"}）</p>
         <div class="rec-stats">
           <div class="rec-stat"><span class="label">預計獲利金額</span><span class="value tabular">${adv.expectedProfitUsdt.toFixed(2)} USDT</span></div>
-          <div class="rec-stat"><span class="label">目標所需步調</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
-          <div class="rec-stat"><span class="label">歷史同方向平均步調</span><span class="value tabular">${hasHistory ? stats.avgReturnPct.toFixed(3) + "%／小時" : "樣本不足"}</span></div>
+          <div class="rec-stat"><span class="label">目標所需每小時報酬率</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
+          <div class="rec-stat"><span class="label">歷史同方向平均每小時報酬率</span><span class="value tabular">${hasHistory ? stats.avgReturnPct.toFixed(3) + "%／小時" : "樣本不足"}</span></div>
           <div class="rec-stat"><span class="label">歷史同方向勝率</span><span class="value tabular">${hasHistory ? (stats.winRate * 100).toFixed(1) + "% (" + stats.trades + " 次)" : "樣本不足"}</span></div>
         </div>
         <div class="pace-note ${paceClass}">${paceText}</div>
