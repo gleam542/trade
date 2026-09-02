@@ -47,3 +47,28 @@ def latest_open_time(conn: sqlite3.Connection, symbol: str) -> int | None:
     )
     result = cur.fetchone()[0]
     return int(result) if result is not None else None
+
+
+def read_closes(conn: sqlite3.Connection, symbol: str, limit: int | None = None) -> list[float]:
+    """Return closing prices for a symbol in ascending open_time order.
+
+    With `limit`, returns the most recent `limit` closes (still ascending).
+    """
+    if limit is None:
+        cur = conn.execute(
+            "SELECT close FROM klines WHERE symbol = ? ORDER BY open_time ASC",
+            (symbol,),
+        )
+    else:
+        cur = conn.execute(
+            """
+            SELECT close FROM (
+                SELECT close, open_time FROM klines
+                WHERE symbol = ?
+                ORDER BY open_time DESC
+                LIMIT ?
+            ) ORDER BY open_time ASC
+            """,
+            (symbol, limit),
+        )
+    return [row[0] for row in cur.fetchall()]

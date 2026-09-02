@@ -1,0 +1,91 @@
+"""Combine RSI + MACD into a simple long/short/neutral signal.
+
+This is a rule-based heuristic, not a trading recommendation:
+- RSI oversold/overbought flags mean-reversion extremes.
+- A MACD crossover flags a shift in momentum.
+Each contributes +1/-1 to a score; the sign of the total score decides the call.
+"""
+
+from indicators import macd, rsi
+
+
+def _decide(
+    latest_rsi: float,
+    macd_now: float,
+    macd_prev: float,
+    signal_now: float,
+    signal_prev: float,
+    rsi_oversold: float,
+    rsi_overbought: float,
+) -> tuple[str, int, list[str]]:
+    """Pure scoring rule, isolated so it can be unit-tested without real price data."""
+    bullish_cross = macd_prev <= signal_prev and macd_now > signal_now
+    bearish_cross = macd_prev >= signal_prev and macd_now < signal_now
+
+    score = 0
+    reasons = []
+
+    if latest_rsi < rsi_oversold:
+        score += 1
+        reasons.append(f"RSI {latest_rsi:.1f} 進入超賣區（<{rsi_oversold}）")
+    elif latest_rsi > rsi_overbought:
+        score -= 1
+        reasons.append(f"RSI {latest_rsi:.1f} 進入超買區（>{rsi_overbought}）")
+
+    if bullish_cross:
+        score += 1
+        reasons.append("MACD 黃金交叉（MACD 上穿訊號線）")
+    elif bearish_cross:
+        score -= 1
+        reasons.append("MACD 死亡交叉（MACD 下穿訊號線）")
+
+    if score > 0:
+        decision = "long"
+    elif score < 0:
+        decision = "short"
+    else:
+        decision = "neutral"
+        if not reasons:
+            reasons.append("RSI 與 MACD 皆未觸發訊號")
+
+    return decision, score, reasons
+
+
+def generate_signal(
+    closes: list[float],
+    rsi_period: int = 14,
+    macd_fast: int = 12,
+    macd_slow: int = 26,
+    macd_signal: int = 9,
+    rsi_oversold: float = 30.0,
+    rsi_overbought: float = 70.0,
+) -> dict:
+    rsi_values = rsi(closes, rsi_period)
+    macd_line, signal_line, _ = macd(closes, macd_fast, macd_slow, macd_signal)
+
+    if len(rsi_values) < 1 or len(macd_line) < 2 or len(signal_line) < 2:
+        return {
+            "signal": "neutral",
+            "score": 0,
+            "reason": "資料不足，無法計算指標",
+            "rsi": None,
+            "macd": None,
+            "macd_signal": None,
+        }
+
+    latest_rsi = rsi_values[-1]
+    macd_now, macd_prev = macd_line[-1], macd_line[-2]
+    signal_now, signal_prev = signal_line[-1], signal_line[-2]
+
+    decision, score, reasons = _decide(
+        latest_rsi, macd_now, macd_prev, signal_now, signal_prev, rsi_oversold, rsi_overbought
+    )
+
+    return {
+        "signal": decision,
+        "score": score,
+        "reason": "；".join(reasons),
+        "rsi": round(latest_rsi, 2),
+        "macd": round(macd_now, 6),
+        "macd_signal": round(signal_now, 6),
+    }
