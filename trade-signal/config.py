@@ -1,4 +1,6 @@
+import os
+
 DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"]
 DEFAULT_INTERVAL = "1h"
 DEFAULT_LIMIT = 500
-DB_PATH = "data/trade_signal.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/trade_signal")

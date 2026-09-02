@@ -10,7 +10,7 @@ beyond "one full unit per signal bar").
 
 import argparse
 
-from config import DB_PATH, DEFAULT_SYMBOLS
+from config import DATABASE_URL, DEFAULT_SYMBOLS
 from db import get_connection, read_ohlc
 from signals import generate_signal_series
 
@@ -110,7 +110,7 @@ def backtest(
 def main() -> None:
     parser = argparse.ArgumentParser(description="對資料庫中的歷史 K 線回測 RSI+MACD+布林 訊號")
     parser.add_argument("--symbols", nargs="+", default=DEFAULT_SYMBOLS, help="要回測的交易對")
-    parser.add_argument("--db", default=DB_PATH, help="SQLite 資料庫檔案路徑")
+    parser.add_argument("--db", default=DATABASE_URL, help="PostgreSQL 連線字串（預設讀環境變數 DATABASE_URL）")
     parser.add_argument("--min-bars", type=int, default=DEFAULT_MIN_BARS, help="開始產生訊號前所需的最少根數（暖機期）")
     parser.add_argument("--rsi-period", type=int, default=14, help="RSI 週期")
     parser.add_argument("--rsi-oversold", type=float, default=30.0, help="RSI 超賣門檻")
