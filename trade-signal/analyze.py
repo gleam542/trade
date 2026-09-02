@@ -19,7 +19,10 @@ def main() -> None:
             closes = read_closes(conn, symbol)
             result = generate_signal(closes)
             label = SIGNAL_LABELS[result["signal"]]
-            print(f"{symbol}: {label}  (RSI={result['rsi']}, MACD={result['macd']}, 訊號線={result['macd_signal']})")
+            print(
+                f"{symbol}: {label}  (RSI={result['rsi']}, MACD={result['macd']}, "
+                f"訊號線={result['macd_signal']}, 布林上軌={result['bb_upper']}, 布林下軌={result['bb_lower']})"
+            )
             print(f"  理由：{result['reason']}")
     finally:
         conn.close()
