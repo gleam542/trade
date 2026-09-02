@@ -72,3 +72,34 @@ def read_closes(conn: sqlite3.Connection, symbol: str, limit: int | None = None)
             (symbol, limit),
         )
     return [row[0] for row in cur.fetchall()]
+
+
+def read_ohlc(
+    conn: sqlite3.Connection, symbol: str, limit: int | None = None
+) -> tuple[list[float], list[float], list[float]]:
+    """Return (highs, lows, closes) for a symbol in ascending open_time order.
+
+    With `limit`, returns the most recent `limit` bars (still ascending).
+    """
+    if limit is None:
+        cur = conn.execute(
+            "SELECT high, low, close FROM klines WHERE symbol = ? ORDER BY open_time ASC",
+            (symbol,),
+        )
+    else:
+        cur = conn.execute(
+            """
+            SELECT high, low, close FROM (
+                SELECT high, low, close, open_time FROM klines
+                WHERE symbol = ?
+                ORDER BY open_time DESC
+                LIMIT ?
+            ) ORDER BY open_time ASC
+            """,
+            (symbol, limit),
+        )
+    rows = cur.fetchall()
+    highs = [row[0] for row in rows]
+    lows = [row[1] for row in rows]
+    closes = [row[2] for row in rows]
+    return highs, lows, closes

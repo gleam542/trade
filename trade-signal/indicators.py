@@ -73,6 +73,37 @@ def macd(
     return macd_aligned, signal_line, histogram
 
 
+def atr(
+    highs: list[float],
+    lows: list[float],
+    closes: list[float],
+    period: int = 14,
+) -> list[float]:
+    """Wilder's Average True Range. Returns a series aligned to closes[period:]
+    (same alignment as `rsi`), empty if not enough data.
+    """
+    if len(closes) < period + 1:
+        return []
+
+    true_ranges = []
+    for i in range(1, len(closes)):
+        true_ranges.append(
+            max(
+                highs[i] - lows[i],
+                abs(highs[i] - closes[i - 1]),
+                abs(lows[i] - closes[i - 1]),
+            )
+        )
+
+    avg = sum(true_ranges[:period]) / period
+    atr_values = [avg]
+    for i in range(period, len(true_ranges)):
+        avg = (avg * (period - 1) + true_ranges[i]) / period
+        atr_values.append(avg)
+
+    return atr_values
+
+
 def bollinger_bands(
     closes: list[float],
     period: int = 20,

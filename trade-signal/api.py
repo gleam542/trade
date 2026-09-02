@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backtest import backtest as run_backtest
 from config import DB_PATH, DEFAULT_SYMBOLS
-from db import get_connection, read_closes
+from db import get_connection, read_ohlc
 from signals import generate_signal
 
 app = FastAPI(title="trade-signal API")
@@ -35,15 +35,15 @@ def _known_symbols(db_path: str) -> list[str]:
     return [r[0] for r in rows] or list(DEFAULT_SYMBOLS)
 
 
-def _closes_or_404(symbol: str, db_path: str) -> list[float]:
+def _ohlc_or_404(symbol: str, db_path: str) -> tuple[list[float], list[float], list[float]]:
     conn = get_connection(db_path)
     try:
-        closes = read_closes(conn, symbol)
+        highs, lows, closes = read_ohlc(conn, symbol)
     finally:
         conn.close()
     if not closes:
         raise HTTPException(status_code=404, detail=f"no stored klines for {symbol}")
-    return closes
+    return highs, lows, closes
 
 
 @app.get("/api/symbols")
@@ -53,8 +53,8 @@ def list_symbols(db: str = Query(default=DB_PATH)):
 
 @app.get("/api/signal/{symbol}")
 def get_signal(symbol: str, db: str = Query(default=DB_PATH)):
-    closes = _closes_or_404(symbol, db)
-    return generate_signal(closes)
+    highs, lows, closes = _ohlc_or_404(symbol, db)
+    return generate_signal(closes, highs=highs, lows=lows)
 
 
 @app.get("/api/chart/{symbol}")
@@ -78,11 +78,13 @@ def get_chart(symbol: str, limit: int = Query(default=300, ge=2, le=2000), db: s
     if not rows:
         raise HTTPException(status_code=404, detail=f"no stored klines for {symbol}")
 
+    highs = [row[2] for row in rows]
+    lows = [row[3] for row in rows]
     closes = [row[4] for row in rows]
     bars = []
     for i, (open_time, o, h, l, c) in enumerate(rows):
         entry = {"t": open_time, "o": o, "h": h, "l": l, "c": c}
-        result = generate_signal(closes[: i + 1])
+        result = generate_signal(closes[: i + 1], highs=highs[: i + 1], lows=lows[: i + 1])
         if result["rsi"] is not None:
             entry.update(
                 rsi=result["rsi"],
@@ -93,6 +95,8 @@ def get_chart(symbol: str, limit: int = Query(default=300, ge=2, le=2000), db: s
                 signal=result["signal"],
                 score=result["score"],
                 reason=result["reason"],
+                atr=result["atr"],
+                stopLoss=result["stop_loss"],
             )
         bars.append(entry)
     return {"symbol": symbol, "bars": bars}
@@ -112,7 +116,7 @@ def get_backtest(
     bb_period: int = 20,
     bb_std: float = 2.0,
 ):
-    closes = _closes_or_404(symbol, db)
+    _, _, closes = _ohlc_or_404(symbol, db)
     return run_backtest(
         closes,
         min_bars=min_bars,
@@ -145,13 +149,13 @@ def advise(
     for symbol in _known_symbols(db):
         conn = get_connection(db)
         try:
-            closes = read_closes(conn, symbol)
+            highs, lows, closes = read_ohlc(conn, symbol)
         finally:
             conn.close()
         if not closes:
             continue
 
-        latest = generate_signal(closes)
+        latest = generate_signal(closes, highs=highs, lows=lows)
         if latest["signal"] not in ("long", "short"):
             continue
 
@@ -165,6 +169,8 @@ def advise(
                 "score": latest["score"],
                 "confidence": abs(latest["score"]) / 3 * 100,
                 "reason": latest["reason"],
+                "atr": latest["atr"],
+                "stopLoss": latest["stop_loss"],
                 "stats": {
                     "trades": direction_stats["trades"],
                     "winRate": direction_stats["win_rate"],

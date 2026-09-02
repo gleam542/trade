@@ -1,7 +1,7 @@
 import argparse
 
 from config import DB_PATH, DEFAULT_SYMBOLS
-from db import get_connection, read_closes
+from db import get_connection, read_ohlc
 from signals import generate_signal
 
 SIGNAL_LABELS = {"long": "做多", "short": "做空", "neutral": "觀望"}
@@ -16,14 +16,16 @@ def main() -> None:
     conn = get_connection(args.db)
     try:
         for symbol in args.symbols:
-            closes = read_closes(conn, symbol)
-            result = generate_signal(closes)
+            highs, lows, closes = read_ohlc(conn, symbol)
+            result = generate_signal(closes, highs=highs, lows=lows)
             label = SIGNAL_LABELS[result["signal"]]
             print(
                 f"{symbol}: {label}  (RSI={result['rsi']}, MACD={result['macd']}, "
                 f"訊號線={result['macd_signal']}, 布林上軌={result['bb_upper']}, 布林下軌={result['bb_lower']})"
             )
             print(f"  理由：{result['reason']}")
+            if result["stop_loss"] is not None:
+                print(f"  止損價位：{result['stop_loss']}（2倍 ATR={result['atr']}）")
     finally:
         conn.close()
 

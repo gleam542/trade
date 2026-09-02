@@ -7,7 +7,7 @@ This is a rule-based heuristic, not a trading recommendation:
 Each contributes +1/-1 to a score; the sign of the total score decides the call.
 """
 
-from indicators import bollinger_bands, macd, rsi
+from indicators import atr, bollinger_bands, macd, rsi
 
 
 def _decide(
@@ -64,6 +64,8 @@ def _decide(
 
 def generate_signal(
     closes: list[float],
+    highs: list[float] | None = None,
+    lows: list[float] | None = None,
     rsi_period: int = 14,
     macd_fast: int = 12,
     macd_slow: int = 26,
@@ -72,7 +74,13 @@ def generate_signal(
     bb_std: float = 2.0,
     rsi_oversold: float = 30.0,
     rsi_overbought: float = 70.0,
+    atr_period: int = 14,
+    atr_stop_multiplier: float = 2.0,
 ) -> dict:
+    """`highs`/`lows` are optional (same length as `closes`) — pass them to
+    also get an ATR-based stop-loss price back. Without them, `atr` and
+    `stop_loss` are just None.
+    """
     rsi_values = rsi(closes, rsi_period)
     macd_line, signal_line, _ = macd(closes, macd_fast, macd_slow, macd_signal)
     bb_middle, bb_upper, bb_lower = bollinger_bands(closes, bb_period, bb_std)
@@ -92,6 +100,8 @@ def generate_signal(
             "macd_signal": None,
             "bb_upper": None,
             "bb_lower": None,
+            "atr": None,
+            "stop_loss": None,
         }
 
     latest_rsi = rsi_values[-1]
@@ -113,6 +123,17 @@ def generate_signal(
         rsi_overbought,
     )
 
+    atr_value = None
+    stop_loss = None
+    if highs is not None and lows is not None:
+        atr_values = atr(highs, lows, closes, atr_period)
+        if atr_values:
+            atr_value = atr_values[-1]
+            if decision == "long":
+                stop_loss = latest_close - atr_stop_multiplier * atr_value
+            elif decision == "short":
+                stop_loss = latest_close + atr_stop_multiplier * atr_value
+
     return {
         "signal": decision,
         "score": score,
@@ -122,4 +143,6 @@ def generate_signal(
         "macd_signal": round(signal_now, 6),
         "bb_upper": round(upper_band, 4),
         "bb_lower": round(lower_band, 4),
+        "atr": round(atr_value, 4) if atr_value is not None else None,
+        "stop_loss": round(stop_loss, 4) if stop_loss is not None else None,
     }
