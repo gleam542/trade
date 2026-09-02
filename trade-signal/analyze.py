@@ -24,6 +24,14 @@ def main() -> None:
                 f"訊號線={result['macd_signal']}, 布林上軌={result['bb_upper']}, 布林下軌={result['bb_lower']})"
             )
             print(f"  理由：{result['reason']}")
+            if result["kd_k"] is not None:
+                print(f"  KD：%K={result['kd_k']}, %D={result['kd_d']}")
+            if result["fib_level"] is not None:
+                trend = "上升段" if result["fib_uptrend"] else "下跌段"
+                print(
+                    f"  費波那契：{trend} 61.8% 回撤位={result['fib_level']}"
+                    f"（高={result['fib_swing_high']}, 低={result['fib_swing_low']}）"
+                )
             if result["stop_loss"] is not None:
                 print(f"  止損價位：{result['stop_loss']}（2倍 ATR={result['atr']}）")
     finally:

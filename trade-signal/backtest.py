@@ -11,7 +11,7 @@ beyond "one full unit per signal bar").
 import argparse
 
 from config import DB_PATH, DEFAULT_SYMBOLS
-from db import get_connection, read_closes
+from db import get_connection, read_ohlc
 from signals import generate_signal
 
 DEFAULT_MIN_BARS = 60
@@ -30,7 +30,18 @@ def _empty_result() -> dict:
     }
 
 
-def backtest(closes: list[float], min_bars: int = DEFAULT_MIN_BARS, **signal_kwargs) -> dict:
+def backtest(
+    closes: list[float],
+    highs: list[float] | None = None,
+    lows: list[float] | None = None,
+    min_bars: int = DEFAULT_MIN_BARS,
+    **signal_kwargs,
+) -> dict:
+    """`highs`/`lows` are optional (same length as `closes`) — pass them so
+    the KD and Fibonacci-retracement factors (and the ATR stop-loss) also
+    participate in each bar's signal, same as `generate_signal()` itself.
+    Without them those factors just sit out, as before.
+    """
     if len(closes) < min_bars + 2:
         return _empty_result()
 
@@ -46,7 +57,9 @@ def backtest(closes: list[float], min_bars: int = DEFAULT_MIN_BARS, **signal_kwa
 
     for i in range(min_bars, len(closes) - 1):
         window = closes[: i + 1]
-        result = generate_signal(window, **signal_kwargs)
+        window_highs = highs[: i + 1] if highs is not None else None
+        window_lows = lows[: i + 1] if lows is not None else None
+        result = generate_signal(window, highs=window_highs, lows=window_lows, **signal_kwargs)
         next_return = (closes[i + 1] - closes[i]) / closes[i]
 
         if result["signal"] == "long":
@@ -104,6 +117,13 @@ def main() -> None:
     parser.add_argument("--macd-signal", type=int, default=9, help="MACD 訊號線 EMA 週期")
     parser.add_argument("--bb-period", type=int, default=20, help="布林通道週期")
     parser.add_argument("--bb-std", type=float, default=2.0, help="布林通道標準差倍數")
+    parser.add_argument("--kd-k-period", type=int, default=14, help="KD %%K 週期")
+    parser.add_argument("--kd-smooth-k", type=int, default=3, help="KD %%K 平滑週期")
+    parser.add_argument("--kd-d-period", type=int, default=3, help="KD %%D 週期")
+    parser.add_argument("--kd-oversold", type=float, default=20.0, help="KD 超賣門檻")
+    parser.add_argument("--kd-overbought", type=float, default=80.0, help="KD 超買門檻")
+    parser.add_argument("--fib-lookback", type=int, default=55, help="費波那契回撤取樣根數")
+    parser.add_argument("--fib-tolerance-pct", type=float, default=0.05, help="費波那契回撤位容忍範圍（佔波段幅度比例）")
     args = parser.parse_args()
 
     signal_kwargs = dict(
@@ -115,13 +135,20 @@ def main() -> None:
         macd_signal=args.macd_signal,
         bb_period=args.bb_period,
         bb_std=args.bb_std,
+        kd_k_period=args.kd_k_period,
+        kd_smooth_k=args.kd_smooth_k,
+        kd_d_period=args.kd_d_period,
+        kd_oversold=args.kd_oversold,
+        kd_overbought=args.kd_overbought,
+        fib_lookback=args.fib_lookback,
+        fib_tolerance_pct=args.fib_tolerance_pct,
     )
 
     conn = get_connection(args.db)
     try:
         for symbol in args.symbols:
-            closes = read_closes(conn, symbol)
-            result = backtest(closes, min_bars=args.min_bars, **signal_kwargs)
+            highs, lows, closes = read_ohlc(conn, symbol)
+            result = backtest(closes, highs=highs, lows=lows, min_bars=args.min_bars, **signal_kwargs)
             if result["bars_tested"] == 0:
                 print(f"{symbol}: 資料不足，無法回測（需要至少 {args.min_bars + 2} 根 K 線）")
                 continue
