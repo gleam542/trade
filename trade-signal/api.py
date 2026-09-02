@@ -9,13 +9,17 @@ port during development — lock it down before exposing this beyond your own
 machine.
 """
 
+from typing import Literal
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from backtest import backtest as run_backtest
 from config import DB_PATH, DEFAULT_SYMBOLS
 from db import get_connection, read_ohlc
-from signals import generate_signal
+from signals import generate_signal, generate_signal_series
+
+Market = Literal["spot", "futures"]
 
 app = FastAPI(title="trade-signal API")
 app.add_middleware(
@@ -26,39 +30,54 @@ app.add_middleware(
 )
 
 
-def _known_symbols(db_path: str) -> list[str]:
+def _known_symbols(db_path: str, market: Market = "spot") -> list[str]:
+    # Scoped to a single market at a time, so a DB that also holds
+    # `python main.py --all`'s few-hundred-symbol futures universe doesn't
+    # flood an endpoint built around a small spot list unless asked for.
     conn = get_connection(db_path)
     try:
-        rows = conn.execute("SELECT DISTINCT symbol FROM klines ORDER BY symbol").fetchall()
+        rows = conn.execute(
+            "SELECT DISTINCT symbol FROM klines WHERE market = ? ORDER BY symbol", (market,)
+        ).fetchall()
     finally:
         conn.close()
-    return [r[0] for r in rows] or list(DEFAULT_SYMBOLS)
+    symbols = [r[0] for r in rows]
+    if not symbols and market == "spot":
+        symbols = list(DEFAULT_SYMBOLS)
+    return symbols
 
 
-def _ohlc_or_404(symbol: str, db_path: str) -> tuple[list[float], list[float], list[float]]:
+def _ohlc_or_404(
+    symbol: str, db_path: str, market: Market = "spot"
+) -> tuple[list[float], list[float], list[float]]:
     conn = get_connection(db_path)
     try:
-        highs, lows, closes = read_ohlc(conn, symbol)
+        highs, lows, closes = read_ohlc(conn, symbol, market=market)
     finally:
         conn.close()
     if not closes:
-        raise HTTPException(status_code=404, detail=f"no stored klines for {symbol}")
+        raise HTTPException(status_code=404, detail=f"no stored {market} klines for {symbol}")
     return highs, lows, closes
 
 
 @app.get("/api/symbols")
-def list_symbols(db: str = Query(default=DB_PATH)):
-    return {"symbols": _known_symbols(db)}
+def list_symbols(market: Market = "spot", db: str = Query(default=DB_PATH)):
+    return {"symbols": _known_symbols(db, market)}
 
 
 @app.get("/api/signal/{symbol}")
-def get_signal(symbol: str, db: str = Query(default=DB_PATH)):
-    highs, lows, closes = _ohlc_or_404(symbol, db)
+def get_signal(symbol: str, market: Market = "spot", db: str = Query(default=DB_PATH)):
+    highs, lows, closes = _ohlc_or_404(symbol, db, market)
     return generate_signal(closes, highs=highs, lows=lows)
 
 
 @app.get("/api/chart/{symbol}")
-def get_chart(symbol: str, limit: int = Query(default=300, ge=2, le=2000), db: str = Query(default=DB_PATH)):
+def get_chart(
+    symbol: str,
+    limit: int = Query(default=300, ge=2, le=2000),
+    market: Market = "spot",
+    db: str = Query(default=DB_PATH),
+):
     """Per-bar OHLC + indicators + the signal that would have fired at that
     bar, using only data up to and including it (no lookahead) — same shape
     the walk-forward backtest consumes, useful for charting."""
@@ -68,23 +87,26 @@ def get_chart(symbol: str, limit: int = Query(default=300, ge=2, le=2000), db: s
             """
             SELECT open_time, open, high, low, close FROM (
                 SELECT open_time, open, high, low, close FROM klines
-                WHERE symbol = ? ORDER BY open_time DESC LIMIT ?
+                WHERE market = ? AND symbol = ? ORDER BY open_time DESC LIMIT ?
             ) ORDER BY open_time ASC
             """,
-            (symbol, limit),
+            (market, symbol, limit),
         ).fetchall()
     finally:
         conn.close()
     if not rows:
-        raise HTTPException(status_code=404, detail=f"no stored klines for {symbol}")
+        raise HTTPException(status_code=404, detail=f"no stored {market} klines for {symbol}")
 
     highs = [row[2] for row in rows]
     lows = [row[3] for row in rows]
     closes = [row[4] for row in rows]
+    # One O(n) pass instead of recomputing every indicator from scratch at
+    # each bar (see generate_signal_series()'s docstring).
+    series = generate_signal_series(closes, highs=highs, lows=lows)
     bars = []
     for i, (open_time, o, h, l, c) in enumerate(rows):
         entry = {"t": open_time, "o": o, "h": h, "l": l, "c": c}
-        result = generate_signal(closes[: i + 1], highs=highs[: i + 1], lows=lows[: i + 1])
+        result = series[i]
         if result["rsi"] is not None:
             entry.update(
                 rsi=result["rsi"],
@@ -111,6 +133,7 @@ def get_chart(symbol: str, limit: int = Query(default=300, ge=2, le=2000), db: s
 @app.get("/api/backtest/{symbol}")
 def get_backtest(
     symbol: str,
+    market: Market = "spot",
     db: str = Query(default=DB_PATH),
     min_bars: int = Query(default=60, ge=1),
     rsi_period: int = 14,
@@ -129,7 +152,7 @@ def get_backtest(
     fib_lookback: int = 55,
     fib_tolerance_pct: float = 0.05,
 ):
-    highs, lows, closes = _ohlc_or_404(symbol, db)
+    highs, lows, closes = _ohlc_or_404(symbol, db, market)
     return run_backtest(
         closes,
         highs=highs,
@@ -161,9 +184,11 @@ def advise(
     db: str = Query(default=DB_PATH),
 ):
     """Cross-symbol screener: among tracked symbols with a non-neutral
-    signal, rank candidates that historically clear the requested pace
-    (from backtest()'s by_direction breakdown) ahead of ones that don't,
-    then by confidence (|score| / 5) within each tier — so the pick
+    signal — spot AND futures both, so a symbol tracked in both markets
+    (e.g. spot BTCUSDT and futures BTCUSDT) shows up as two independent
+    candidates — rank candidates that historically clear the requested
+    pace (from backtest()'s by_direction breakdown) ahead of ones that
+    don't, then by confidence (|score| / 5) within each tier — so the pick
     actually responds to capital/profit_pct/hours instead of only
     annotating a fixed, target-independent ranking. Still not a
     guarantee: it's "which of these signals historically kept up with
@@ -171,42 +196,44 @@ def advise(
     required_hourly_pct = ((1 + profit_pct / 100) ** (1 / hours) - 1) * 100
 
     candidates = []
-    for symbol in _known_symbols(db):
-        conn = get_connection(db)
-        try:
-            highs, lows, closes = read_ohlc(conn, symbol)
-        finally:
-            conn.close()
-        if not closes:
-            continue
+    for market in ("spot", "futures"):
+        for symbol in _known_symbols(db, market):
+            conn = get_connection(db)
+            try:
+                highs, lows, closes = read_ohlc(conn, symbol, market=market)
+            finally:
+                conn.close()
+            if not closes:
+                continue
 
-        latest = generate_signal(closes, highs=highs, lows=lows)
-        if latest["signal"] not in ("long", "short"):
-            continue
+            latest = generate_signal(closes, highs=highs, lows=lows)
+            if latest["signal"] not in ("long", "short"):
+                continue
 
-        bt = run_backtest(closes, highs=highs, lows=lows)
-        direction_stats = bt["by_direction"][latest["signal"]]
+            bt = run_backtest(closes, highs=highs, lows=lows)
+            direction_stats = bt["by_direction"][latest["signal"]]
 
-        candidates.append(
-            {
-                "symbol": symbol,
-                "direction": latest["signal"],
-                "score": latest["score"],
-                "confidence": abs(latest["score"]) / 5 * 100,
-                "reason": latest["reason"],
-                "atr": latest["atr"],
-                "stopLoss": latest["stop_loss"],
-                "stats": {
-                    "trades": direction_stats["trades"],
-                    "winRate": direction_stats["win_rate"],
-                    "avgReturnPct": (
-                        direction_stats["avg_return"] * 100
-                        if direction_stats["avg_return"] is not None
-                        else None
-                    ),
-                },
-            }
-        )
+            candidates.append(
+                {
+                    "symbol": symbol,
+                    "market": market,
+                    "direction": latest["signal"],
+                    "score": latest["score"],
+                    "confidence": abs(latest["score"]) / 5 * 100,
+                    "reason": latest["reason"],
+                    "atr": latest["atr"],
+                    "stopLoss": latest["stop_loss"],
+                    "stats": {
+                        "trades": direction_stats["trades"],
+                        "winRate": direction_stats["win_rate"],
+                        "avgReturnPct": (
+                            direction_stats["avg_return"] * 100
+                            if direction_stats["avg_return"] is not None
+                            else None
+                        ),
+                    },
+                }
+            )
 
     def meets_pace(c: dict) -> bool:
         avg = c["stats"]["avgReturnPct"]

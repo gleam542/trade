@@ -6,7 +6,7 @@
 
 ## 資料來源
 
-Binance 公開 REST API（`/api/v3/klines`），不需要 API key。
+預設抓 Binance 現貨公開 REST API（`/api/v3/klines`），不需要 API key。也可以改抓 Binance USDT 本位永續合約（`fapi.binance.com`）——見下方 `--all`。
 
 ## 安裝
 
@@ -21,12 +21,15 @@ python main.py --symbols BTCUSDT ETHUSDT --interval 1h --limit 500
 ```
 
 參數：
-- `--symbols`：要抓的交易對，預設 `BTCUSDT ETHUSDT BNBUSDT SOLUSDT XRPUSDT`
+- `--symbols`：要抓的交易對，預設 `BTCUSDT ETHUSDT BNBUSDT SOLUSDT XRPUSDT`（跟 `--all` 互斥，兩者只能擇一）
+- `--all`：改抓幣安**所有**目前在交易中的 USDT 本位永續合約（`fapi.binance.com/fapi/v1/exchangeInfo` 篩出 `contractType=PERPETUAL`、`quoteAsset=USDT`、`status=TRADING`，約三、四百個），忽略 `--symbols`，存入時 `market` 欄位會是 `futures`。因為一次要打幾百次 API，`--all` 模式下每個交易對之間會停頓 0.1 秒才發下一個請求，避免觸發 Binance 限流；一輪跑下來大約數十秒
 - `--interval`：K 線週期（`1m` `5m` `1h` `4h` `1d` 等），預設 `1h`
 - `--limit`：每個交易對抓取的根數（最大 1000），預設 `500`
 - `--db`：SQLite 檔案路徑，預設 `data/trade_signal.db`
 
-資料會存到 `klines` 資料表，以 `(symbol, open_time)` 為主鍵，重複執行會更新既有資料而不會產生重複列。
+資料會存到 `klines` 資料表，以 `(market, symbol, open_time)` 為主鍵，重複執行會更新既有資料而不會產生重複列——`market` 讓現貨（`spot`，預設）跟合約（`futures`，`--all` 或未來的 `--symbols ... --market futures`）的同名交易對（例如現貨 BTCUSDT 跟合約 BTCUSDT）分開存放，不會互相覆蓋。舊版（沒有 `market` 欄位）的資料庫第一次被 `get_connection()` 打開時會自動遷移：既有資料一律標記成 `market='spot'`，不會遺失。
+
+**注意**：`read_ohlc()`／`read_closes()` 的 `market` 參數預設都是 `'spot'`，`analyze.py`／`backtest.py` CLI 版也還是只看現貨（呼叫時沒有指定 `market`）。`api.py` 的 `/api/symbols`／`/api/signal`／`/api/chart`／`/api/backtest` 這幾個單一交易對端點也預設現貨，但接受 `market=futures` 查詢參數可以指定看合約（前端「交易對」分頁旁邊的市場別選單就是用這個切換）；`/api/advise`（策略試算）比較特別，固定會同時掃描現貨＋合約兩個市場，不受 `market` 參數（它本來就不接受這個參數）或前端選單影響。
 
 單一交易對抓取失敗（連不到 Binance、被限流、交易對打錯字等）不會中斷整批：`main.py` 會印出那個交易對的錯誤原因、跳過它，繼續抓其餘交易對；跑完後如果有任何交易對失敗，會印出失敗清單並以非 0 狀態碼結束（方便 cron 或監控腳本偵測），已成功抓到的交易對照樣會存進資料庫。
 
@@ -34,6 +37,7 @@ python main.py --symbols BTCUSDT ETHUSDT --interval 1h --limit 500
 
 | 欄位 | 說明 |
 |---|---|
+| market | 市場別，`spot`（現貨，預設）或 `futures`（USDT 本位永續合約） |
 | symbol | 交易對，如 BTCUSDT |
 | open_time | K 線開盤時間（毫秒時間戳） |
 | open / high / low / close | 開高低收價 |
@@ -107,15 +111,21 @@ uvicorn api:app --reload --port 8000
 ```
 
 端點：
-- `GET /api/symbols` — 資料庫裡有資料的交易對清單
-- `GET /api/signal/{symbol}` — 該交易對目前的 `generate_signal()` 結果
-- `GET /api/chart/{symbol}?limit=300` — 逐根 K 線的 OHLC + 指標（含 `kdK`/`kdD`/`fibLevel`/`fibSwingHigh`/`fibSwingLow`/`fibUptrend`）+ 當下（不含未來）訊號 + 止損價位，給畫圖用
-- `GET /api/backtest/{symbol}?...` — 呼叫 `backtest()`，查詢參數對應 `--rsi-period`、`--kd-k-period`、`--fib-lookback` 等 CLI 參數
-- `GET /api/advise?capital=&profit_pct=&hours=` — 跨交易對掃描：本金、目標盈利 %、預計花費小時數，換算成每小時所需報酬率（`requiredHourlyPct`），排序時先分兩層——「歷史上該方向的平均每小時報酬（來自 `backtest()` 的 `by_direction` 細分）有沒有達到這個目標」排前面，同樣有達到／同樣沒達到的再比訊號分數的信心度（`|score| / 5`，五項指標同向觸發的比例），最後比勝率。也就是說輸入的本金／目標盈利／小時數改變時，`requiredHourlyPct` 跟著變，兩層排序的結果也可能跟著換人——不是固定訊號分數排序、只是換個數字顯示而已。附上該方向的歷史勝率／平均報酬、以及 ATR 止損價位做參考
+- `GET /api/symbols?market=spot|futures` — 資料庫裡有資料的交易對清單，`market` 預設 `spot`
+- `GET /api/signal/{symbol}?market=` — 該交易對目前的 `generate_signal()` 結果
+- `GET /api/chart/{symbol}?limit=300&market=` — 逐根 K 線的 OHLC + 指標（含 `kdK`/`kdD`/`fibLevel`/`fibSwingHigh`/`fibSwingLow`/`fibUptrend`）+ 當下（不含未來）訊號 + 止損價位，給畫圖用
+- `GET /api/backtest/{symbol}?market=...` — 呼叫 `backtest()`，查詢參數對應 `--rsi-period`、`--kd-k-period`、`--fib-lookback` 等 CLI 參數
+- `GET /api/advise?capital=&profit_pct=&hours=` — 跨交易對掃描：**同時掃描現貨與合約兩個市場**（同一個代號在兩邊各自算一個獨立候選，例如現貨 BTCUSDT 跟合約 BTCUSDT 可能訊號方向不同，會分開列出），本金、目標盈利 %、預計花費小時數換算成每小時所需報酬率（`requiredHourlyPct`），排序時先分兩層——「歷史上該方向的平均每小時報酬（來自 `backtest()` 的 `by_direction` 細分）有沒有達到這個目標」排前面，同樣有達到／同樣沒達到的再比訊號分數的信心度（`|score| / 5`，五項指標同向觸發的比例），最後比勝率。也就是說輸入的本金／目標盈利／小時數改變時，`requiredHourlyPct` 跟著變，兩層排序的結果也可能跟著換人——不是固定訊號分數排序、只是換個數字顯示而已。附上該方向的歷史勝率／平均報酬、以及 ATR 止損價位做參考，回傳的每個候選跟最終 `pick` 都附帶 `market` 欄位。跑過 `python main.py --all` 之後這裡可能要掃三、四百個合約交易對，一次掃描可能要幾秒鐘——見下方效能說明
 
 啟動後可以打開 `http://localhost:8000/docs` 看自動產生的 API 文件。CORS 預設全開（`allow_origins=["*"]`），方便本機開發時用不同 port 或直接開檔案存取；正式對外提供服務前要收窄。
 
 打開前端：先確定 API 正在跑（見上），再直接用瀏覽器開啟 `frontend/console.html`（或用任何靜態伺服器），畫面上方的欄位可以改 API 位址（預設 `http://localhost:8000`）。這個檔案會即時 fetch 這幾個端點，跟前面章節的腳本是同一套邏輯、同一個資料庫，不是另外寫死的展示資料。
+
+交易對分頁旁邊有個「市場別」下拉選單（現貨／合約）。現貨交易對數量少，維持原本的分頁介面；切到合約會改成另一個下拉選單挑交易對——因為 `python main.py --all` 抓回來的合約可能有三、四百個，全部做成分頁會直接把版面撐爆。這個選單只影響「交易對」分頁跟下面的圖表要顯示現貨還是合約資料；**策略試算的掃描範圍不受這個選單影響**，永遠現貨＋合約都掃（見上面 `/api/advise` 的說明），下方圖表會依照建議結果本身的 `market` 自動切換，不是跟著選單走。
+
+### 效能：為什麼要一次算完整個序列
+
+`generate_signal()` 只回傳「最新一根」的判斷；`backtest.py` 的回測、`/api/chart` 的逐根圖表資料都需要「每一根」的判斷，走的是 `generate_signal_series()`——一次把整段序列的 RSI／MACD／布林／KD 都算好，再逐根讀值，而不是對每一根都重新從頭算一次指標。原本後者是 O(n²)（序列長度的平方），資料只有 5 個交易對時感覺不出來，但 `--all` 抓回三、四百個合約、`/api/advise` 又要對每個候選都跑一次回測時就會很明顯——例如 500 根 K 線、105 個交易對，優化前要 80 秒以上，優化後約 2 秒。前端「策略試算」的輸入框（本金／盈利／小時數）也因此改成 400ms 防抖動（debounce），不會每打一個字就送一次全市場掃描的請求。
 
 畫面上有兩塊容易搞混、但範圍不同的區塊：
 - **最新判斷**（摘要條，在交易對分頁下方）：只反映你**目前選取的分頁**（例如點 BTCUSDT 就顯示 BTCUSDT 自己的 `generate_signal()` 結果，含止損價位），切換分頁就會跟著換。

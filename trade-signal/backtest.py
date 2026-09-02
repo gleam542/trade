@@ -12,7 +12,7 @@ import argparse
 
 from config import DB_PATH, DEFAULT_SYMBOLS
 from db import get_connection, read_ohlc
-from signals import generate_signal
+from signals import generate_signal_series
 
 DEFAULT_MIN_BARS = 60
 
@@ -55,11 +55,14 @@ def backtest(
         "short": {"trades": 0, "wins": 0, "sum_return": 0.0},
     }
 
+    # One O(n) pass over the whole series instead of recomputing every
+    # indicator from scratch at each bar (generate_signal() in a loop here
+    # would be O(n²) — noticeable once a symbol universe runs into the
+    # hundreds, as `python main.py --all` does).
+    series = generate_signal_series(closes, highs, lows, **signal_kwargs)
+
     for i in range(min_bars, len(closes) - 1):
-        window = closes[: i + 1]
-        window_highs = highs[: i + 1] if highs is not None else None
-        window_lows = lows[: i + 1] if lows is not None else None
-        result = generate_signal(window, highs=window_highs, lows=window_lows, **signal_kwargs)
+        result = series[i]
         next_return = (closes[i + 1] - closes[i]) / closes[i]
 
         if result["signal"] == "long":
