@@ -6,7 +6,7 @@
 
 ## 資料來源
 
-預設抓 Binance 現貨公開 REST API（`/api/v3/klines`），不需要 API key。也可以改抓 Binance USDT 本位永續合約（`fapi.binance.com`）——見下方 `--all`。
+預設抓 Binance USDT 本位永續合約公開 REST API（`fapi.binance.com`），不需要 API key。也可以改抓 Binance 現貨（`/api/v3/klines`）——見下方 `--symbols`。
 
 ## 安裝
 
@@ -19,19 +19,20 @@ pip install -r requirements.txt
 ## 使用方式
 
 ```bash
-python main.py --symbols BTCUSDT ETHUSDT --interval 1h --limit 500
+python main.py
 ```
 
 參數：
-- `--symbols`：要抓的交易對，預設 `BTCUSDT ETHUSDT BNBUSDT SOLUSDT XRPUSDT`（跟 `--all` 互斥，兩者只能擇一）
-- `--all`：改抓幣安**所有**目前在交易中的 USDT 本位永續合約（`fapi.binance.com/fapi/v1/exchangeInfo` 篩出 `contractType=PERPETUAL`、`quoteAsset=USDT`、`status=TRADING`，約三、四百個），忽略 `--symbols`，存入時 `market` 欄位會是 `futures`。因為一次要打幾百次 API，`--all` 模式下每個交易對之間會停頓 0.1 秒才發下一個請求，避免觸發 Binance 限流；一輪跑下來大約數十秒
+- 不加任何參數：抓幣安**所有**目前在交易中的 USDT 本位永續合約（等同 `--all`，見下）——這是預設行為
+- `--symbols`：改抓**現貨**這幾個交易對，例如 `--symbols BTCUSDT ETHUSDT`（跟 `--all` 互斥，兩者只能擇一；不指定 `--symbols` 也不指定 `--all` 時，等同指定了 `--all`）
+- `--all`：明確指定抓全部 USDT 本位永續合約（`fapi.binance.com/fapi/v1/exchangeInfo` 篩出 `contractType=PERPETUAL`、`quoteAsset=USDT`、`status=TRADING`，約三、四百個），存入時 `market` 欄位會是 `futures`。因為一次要打幾百次 API，這個模式下每個交易對之間會停頓 0.1 秒才發下一個請求，避免觸發 Binance 限流；一輪跑下來大約數十秒
 - `--interval`：K 線週期（`1m` `5m` `1h` `4h` `1d` 等），預設 `1h`
 - `--limit`：每個交易對抓取的根數（最大 1000），預設 `500`
 - `--db`：PostgreSQL 連線字串，預設讀環境變數 `DATABASE_URL`（見上方「安裝」）
 
-資料會存到 `klines` 資料表，以 `(market, symbol, open_time)` 為主鍵，重複執行會更新既有資料而不會產生重複列（`INSERT ... ON CONFLICT DO UPDATE`）——`market` 讓現貨（`spot`，預設）跟合約（`futures`，`--all` 或未來的 `--symbols ... --market futures`）的同名交易對（例如現貨 BTCUSDT 跟合約 BTCUSDT）分開存放，不會互相覆蓋。
+資料會存到 `klines` 資料表，以 `(market, symbol, open_time)` 為主鍵，重複執行會更新既有資料而不會產生重複列（`INSERT ... ON CONFLICT DO UPDATE`）——`market` 讓現貨（`spot`，`--symbols`）跟合約（`futures`，預設或 `--all`）的同名交易對（例如現貨 BTCUSDT 跟合約 BTCUSDT）分開存放，不會互相覆蓋。
 
-**注意**：`read_ohlc()`／`read_closes()` 的 `market` 參數預設都是 `'spot'`，`analyze.py`／`backtest.py` CLI 版也還是只看現貨（呼叫時沒有指定 `market`）。`api.py` 的 `/api/symbols`／`/api/signal`／`/api/chart`／`/api/backtest` 這幾個單一交易對端點也預設現貨，但接受 `market=futures` 查詢參數可以指定看合約（前端「交易對」分頁旁邊的市場別選單就是用這個切換）；`/api/advise`（策略試算）比較特別，固定會同時掃描現貨＋合約兩個市場，不受 `market` 參數（它本來就不接受這個參數）或前端選單影響。
+**注意這裡有兩個不同的「預設」，容易搞混**：`main.py`**抓資料**時不加參數預設抓合約（上面說的）；但 `read_ohlc()`／`read_closes()` 的 `market` 參數、`analyze.py`／`backtest.py` CLI 版、`api.py` 的 `/api/symbols`／`/api/signal`／`/api/chart`／`/api/backtest` 這幾個單一交易對端點，**分析時**預設看的都還是現貨（`market='spot'`）——如果你只跑過預設的 `python main.py`（合約），資料庫裡會沒有現貨資料，這些分析端點會查不到東西（`analyze.py`／`backtest.py` 會印出「無此交易對資料」，API 端點會回 404）。API 端點都接受 `market=futures` 查詢參數可以指定看合約（前端「交易對」分頁旁邊的市場別選單就是用這個切換）；`/api/advise`（策略試算）比較特別，固定會同時掃描現貨＋合約兩個市場，不受 `market` 參數（它本來就不接受這個參數）或前端選單影響。
 
 單一交易對抓取失敗（連不到 Binance、被限流、交易對打錯字等）不會中斷整批：`main.py` 會印出那個交易對的錯誤原因、跳過它，繼續抓其餘交易對；跑完後如果有任何交易對失敗，會印出失敗清單並以非 0 狀態碼結束（方便 cron 或監控腳本偵測），已成功抓到的交易對照樣會存進資料庫。
 
@@ -50,11 +51,13 @@ python main.py --symbols BTCUSDT ETHUSDT --interval 1h --limit 500
 
 用 Docker 的話不用自己設 cron——`docker-compose.yml` 內建一個 `scheduler` 服務，`docker compose up` 就會自動每 15 分鐘跑一次 `python main.py`（見下方「Docker」一節）。以下是不用 Docker、自己在主機上跑時的作法。
 
-可以搭配 cron 定期執行，例如每 15 分鐘存一次庫：
+可以搭配 cron 定期執行，例如每 15 分鐘存一次庫（不加參數，預設抓全部合約）：
 
 ```
 */15 * * * * cd /path/to/trade-signal && DATABASE_URL=postgresql://user:password@host:5432/trade_signal python main.py >> fetch.log 2>&1
 ```
+
+只想抓現貨那幾個交易對的話，cron 那行加上 `--symbols`（例如 `python main.py --symbols BTCUSDT ETHUSDT`）即可——這樣每輪只打個位數次 API，遠比抓全部合約輕量。
 
 cron 執行環境不會自動帶入你互動式 shell 的環境變數，所以 `DATABASE_URL` 通常要像上面這樣直接寫在 crontab 那一行裡（或寫進一個 cron 會讀到的 env 檔）。
 
@@ -152,7 +155,7 @@ docker compose up --build
 `docker-compose.yml` 有三個服務：
 - `db`：官方 `postgres:16-alpine`，資料存在具名 volume（`db-data`），容器重建或重啟資料不會不見；也對外開了 `5432` port，本機工具（例如 `psql`）要直接連也可以
 - `api`：這個專案的 FastAPI 服務，`DATABASE_URL` 環境變數已經指向 `db` 服務（`postgresql://trade:trade@db:5432/trade_signal`），`depends_on` 設定會等 `db` 通過健康檢查（`pg_isready`）才啟動
-- `scheduler`：跟 `api` 同一個 image，不開 port，啟動後就跑 `while true; do python main.py; sleep 900; done`——等同內建每 15 分鐘一次的 cron，不用另外在主機上設定排程。單次 `main.py` 失敗（連不上 Binance、限流等）不會讓這個迴圈停下來，下一輪還是會照跑；只抓現貨預設的 5 個交易對，跟 README 前面「排程抓取」章節的 cron 範例做一樣的事。想抓別的交易對或改用 `--all`，直接編輯 `docker-compose.yml` 裡 `scheduler` 的 `command` 即可
+- `scheduler`：跟 `api` 同一個 image，不開 port，啟動後就跑 `while true; do python main.py; sleep 900; done`——等同內建每 15 分鐘一次的 cron，不用另外在主機上設定排程。單次 `main.py` 失敗（連不上 Binance、限流等）不會讓這個迴圈停下來，下一輪還是會照跑；不加參數預設抓**全部合約**（約三、四百個，每輪跑下來大約數十秒），跟 README 前面「排程抓取」章節的 cron 範例做一樣的事。只想抓現貨那幾個交易對的話，把 `docker-compose.yml` 裡 `scheduler` 的 `command` 改成 `python main.py --symbols BTCUSDT ETHUSDT` 之類即可
 
 啟動後 API 就在 `http://localhost:8000`。之後打開 `frontend/console.html` 一樣把 API 位址指向 `http://localhost:8000` 即可，前端本身不跑在容器裡，還是直接用瀏覽器開檔案。
 
