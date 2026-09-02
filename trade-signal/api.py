@@ -139,10 +139,13 @@ def advise(
     db: str = Query(default=DB_PATH),
 ):
     """Cross-symbol screener: among tracked symbols with a non-neutral
-    signal, rank by confidence (|score| / 3) and report the historical
-    pace (from backtest()'s by_direction breakdown) for the matching
-    direction, so the caller can judge whether the requested target is
-    plausible relative to this rule's own history — not a guarantee."""
+    signal, rank candidates that historically clear the requested pace
+    (from backtest()'s by_direction breakdown) ahead of ones that don't,
+    then by confidence (|score| / 3) within each tier — so the pick
+    actually responds to capital/profit_pct/hours instead of only
+    annotating a fixed, target-independent ranking. Still not a
+    guarantee: it's "which of these signals historically kept up with
+    this pace," not a forecast."""
     required_hourly_pct = ((1 + profit_pct / 100) ** (1 / hours) - 1) * 100
 
     candidates = []
@@ -183,8 +186,12 @@ def advise(
             }
         )
 
+    def meets_pace(c: dict) -> bool:
+        avg = c["stats"]["avgReturnPct"]
+        return avg is not None and avg >= required_hourly_pct
+
     candidates.sort(
-        key=lambda c: (c["confidence"], c["stats"]["winRate"] or -1),
+        key=lambda c: (meets_pace(c), c["confidence"], c["stats"]["winRate"] or -1),
         reverse=True,
     )
 
