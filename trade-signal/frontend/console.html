@@ -191,6 +191,7 @@
   .field .unit { padding: 0 10px; font-size: 12px; color: var(--ink-muted); border-left: 1px solid var(--border); white-space: nowrap; }
   .advisor-result { border: 1px solid var(--border); border-radius: 12px; background: var(--page); padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-height: 60px; }
   .rec-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .rec-scope-note { margin: 0; font-size: 11px; color: var(--ink-muted); }
   .rec-symbol { display: flex; flex-direction: column; gap: 2px; }
   .rec-symbol .eyebrow { font-size: 11px; letter-spacing: 0.06em; color: var(--ink-muted); text-transform: uppercase; }
   .rec-symbol .value { font-family: "IBM Plex Mono", monospace; font-size: 20px; font-weight: 600; }
@@ -270,7 +271,7 @@
   <section class="panel advisor">
     <div class="advisor-head">
       <h2>策略試算</h2>
-      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描目前追蹤的交易對，挑出訊號分數最高者作為參考——非保證達成的投資建議。</p>
+      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的交易對，挑出訊號分數最高者作為參考——與下方目前選取的分頁無關，也不是保證達成的投資建議。</p>
     </div>
     <div class="advisor-body">
       <div class="advisor-form">
@@ -671,6 +672,7 @@
             <div class="rec-symbol"><span class="eyebrow">建議商品</span><span class="value">—</span></div>
             <div class="rec-direction none">目前無明確訊號</div>
           </div>
+          <p class="rec-scope-note">※ 掃描全部追蹤中的交易對，與下方目前選取的分頁無關</p>
           <div class="pace-note unknown">目前追蹤的交易對 RSI／MACD／布林通道皆未觸發多空訊號，建議先觀望。</div>
         `;
         return;
@@ -701,6 +703,7 @@
             <div class="confidence-track"><div class="confidence-fill" style="width:${pick.confidence}%"></div></div>
           </div>
         </div>
+        <p class="rec-scope-note">※ 掃描全部追蹤中的交易對後的結果，與下方目前選取的分頁無關（目前分頁：${current ?? "尚未選取"}）</p>
         <div class="rec-stats">
           <div class="rec-stat"><span class="label">預計獲利金額</span><span class="value tabular">${adv.expectedProfitUsdt.toFixed(2)} USDT</span></div>
           <div class="rec-stat"><span class="label">目標所需步調</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
