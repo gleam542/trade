@@ -191,6 +191,7 @@
   .field .unit { padding: 0 10px; font-size: 12px; color: var(--ink-muted); border-left: 1px solid var(--border); white-space: nowrap; }
   .advisor-result { border: 1px solid var(--border); border-radius: 12px; background: var(--page); padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-height: 60px; }
   .rec-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .rec-scope-note { margin: 0; font-size: 11px; color: var(--ink-muted); }
   .rec-symbol { display: flex; flex-direction: column; gap: 2px; }
   .rec-symbol .eyebrow { font-size: 11px; letter-spacing: 0.06em; color: var(--ink-muted); text-transform: uppercase; }
   .rec-symbol .value { font-family: "IBM Plex Mono", monospace; font-size: 20px; font-weight: 600; }
@@ -267,33 +268,7 @@
 
   <nav class="symbol-tabs" id="symbolTabs" role="tablist" aria-label="交易對"></nav>
 
-  <section class="panel advisor">
-    <div class="advisor-head">
-      <h2>策略試算</h2>
-      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描目前追蹤的交易對，挑出訊號分數最高者作為參考——非保證達成的投資建議。</p>
-    </div>
-    <div class="advisor-body">
-      <div class="advisor-form">
-        <div class="field">
-          <label for="inputCapital">投入金額</label>
-          <div class="input-row"><input type="number" id="inputCapital" value="1000" min="1" step="1"><span class="unit">USDT</span></div>
-        </div>
-        <div class="field">
-          <label for="inputProfit">預計盈利</label>
-          <div class="input-row"><input type="number" id="inputProfit" value="5" min="0.1" step="0.1"><span class="unit">%</span></div>
-        </div>
-        <div class="field">
-          <label for="inputHours">預計多少小時達到</label>
-          <div class="input-row"><input type="number" id="inputHours" value="24" min="1" step="1"><span class="unit">小時</span></div>
-        </div>
-      </div>
-      <div class="advisor-result" id="advisorResult">
-        <p class="placeholder-text">尚未連線至 API。</p>
-      </div>
-    </div>
-    <p class="advisor-disclaimer">信心率＝目前 RSI／MACD／布林通道三項指標中同向觸發的比例；歷史步調來自 <span class="num">backtest.py</span> 對你資料庫裡實際儲存資料的回測，並非保證。本區塊不構成投資建議。</p>
-  </section>
-
+  <p class="rec-scope-note">↓ 以下「最新判斷」與圖表只反映上面目前選取的分頁；跨交易對的推薦掃描在最下方的「策略試算」區塊</p>
   <section class="summary-strip" id="summaryStrip" aria-live="polite"></section>
 
   <section class="panel" id="pricePanel">
@@ -349,6 +324,44 @@
         <tbody id="tableBody"></tbody>
       </table>
     </div>
+  </section>
+
+  <section class="panel advisor">
+    <div class="advisor-head">
+      <h2>策略試算</h2>
+      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的交易對，挑出訊號分數最高者作為參考——與上面目前選取的分頁無關，也不是保證達成的投資建議。</p>
+    </div>
+    <div class="advisor-body">
+      <div class="advisor-form">
+        <div class="field">
+          <label for="inputCapital">投入金額</label>
+          <div class="input-row"><input type="number" id="inputCapital" value="1000" min="1" step="1"><span class="unit">USDT</span></div>
+        </div>
+        <div class="field">
+          <label for="inputProfit">預計盈利</label>
+          <div class="input-row"><input type="number" id="inputProfit" value="5" min="0.1" step="0.1"><span class="unit">%</span></div>
+        </div>
+        <div class="field">
+          <label for="inputHours">預計多少小時達到</label>
+          <div class="input-row"><input type="number" id="inputHours" value="24" min="1" step="1"><span class="unit">小時</span></div>
+        </div>
+      </div>
+      <div class="advisor-result" id="advisorResult">
+        <p class="placeholder-text">尚未連線至 API。</p>
+      </div>
+    </div>
+    <div class="panel-head" style="margin-top:4px;">
+      <h2>各交易對步調比較</h2>
+      <ul class="legend">
+        <li><span class="key" style="background:var(--good)"></span>做多方向歷史步調</li>
+        <li><span class="key" style="background:var(--critical)"></span>做空方向歷史步調</li>
+        <li style="color:var(--ink-secondary)">┊ 目標所需步調</li>
+      </ul>
+    </div>
+    <div class="chart-wrap" id="candidatesWrap">
+      <svg id="candidatesSvg" viewBox="0 0 960 40" preserveAspectRatio="none" role="img" aria-label="各交易對歷史步調與目標步調比較圖"></svg>
+    </div>
+    <p class="advisor-disclaimer">信心率＝目前 RSI／MACD／布林通道三項指標中同向觸發的比例；歷史步調來自 <span class="num">backtest.py</span> 對你資料庫裡實際儲存資料的回測，並非保證。本區塊不構成投資建議。</p>
   </section>
 
   <footer class="foot">資料來自本機 API，僅供技術示範，不構成投資建議。 · <span class="num">trade-signal</span></footer>
@@ -671,8 +684,10 @@
             <div class="rec-symbol"><span class="eyebrow">建議商品</span><span class="value">—</span></div>
             <div class="rec-direction none">目前無明確訊號</div>
           </div>
+          <p class="rec-scope-note">※ 掃描全部追蹤中的交易對，與上面目前選取的分頁無關</p>
           <div class="pace-note unknown">目前追蹤的交易對 RSI／MACD／布林通道皆未觸發多空訊號，建議先觀望。</div>
         `;
+        renderCandidatesChart([], adv.requiredHourlyPct);
         return;
       }
       const dirLabel = pick.direction === "long" ? "做多" : "做空";
@@ -701,6 +716,7 @@
             <div class="confidence-track"><div class="confidence-fill" style="width:${pick.confidence}%"></div></div>
           </div>
         </div>
+        <p class="rec-scope-note">※ 掃描全部追蹤中的交易對後的結果，與上面目前選取的分頁無關（目前分頁：${current ?? "尚未選取"}）</p>
         <div class="rec-stats">
           <div class="rec-stat"><span class="label">預計獲利金額</span><span class="value tabular">${adv.expectedProfitUsdt.toFixed(2)} USDT</span></div>
           <div class="rec-stat"><span class="label">目標所需步調</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
@@ -709,9 +725,73 @@
         </div>
         <div class="pace-note ${paceClass}">${paceText}</div>
       `;
+      renderCandidatesChart(adv.candidates, adv.requiredHourlyPct);
     } catch (e) {
       showError(e.message);
     }
+  }
+
+  function renderCandidatesChart(candidates, requiredHourlyPct) {
+    const svg = document.getElementById("candidatesSvg");
+    svg.textContent = "";
+    if (!candidates || !candidates.length) {
+      svg.setAttribute("viewBox", "0 0 960 40");
+      return;
+    }
+
+    const rowH = 34;
+    const padL = 92, padR = 60, padT = 18, padB = 10;
+    const W = 960;
+    const H = padT + padB + candidates.length * rowH;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+    const withHistory = candidates.filter((c) => c.stats.trades > 0);
+    const values = withHistory.map((c) => c.stats.avgReturnPct).concat([requiredHourlyPct, 0]);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = (max - min) || 1;
+    const innerW = W - padL - padR;
+    const x = (v) => padL + ((v - min) / span) * innerW;
+    const zeroX = x(0);
+
+    svg.appendChild(el("line", { x1: zeroX.toFixed(2), x2: zeroX.toFixed(2), y1: padT, y2: H - padB, stroke: "var(--baseline)", "stroke-width": 1 }));
+
+    const targetX = x(requiredHourlyPct);
+    svg.appendChild(el("line", { x1: targetX.toFixed(2), x2: targetX.toFixed(2), y1: padT, y2: H - padB, stroke: "var(--ink-secondary)", "stroke-width": 1, "stroke-dasharray": "3 3" }));
+    const targetLabel = el("text", { x: targetX.toFixed(2), y: (padT - 6).toFixed(2), "font-size": 9, "text-anchor": "middle" });
+    targetLabel.textContent = "目標";
+    svg.appendChild(targetLabel);
+
+    candidates.forEach((c, i) => {
+      const cy = padT + i * rowH + rowH / 2;
+      const color = c.direction === "long" ? "var(--good)" : "var(--critical)";
+      const label = el("text", { x: padL - 10, y: (cy + 4).toFixed(2), "font-size": 11, "text-anchor": "end" });
+      label.textContent = `${c.symbol} ${c.direction === "long" ? "多" : "空"}`;
+      svg.appendChild(label);
+
+      if (c.stats.trades > 0) {
+        const barX = x(c.stats.avgReturnPct);
+        const left = Math.min(barX, zeroX);
+        const width = Math.max(Math.abs(barX - zeroX), 1);
+        svg.appendChild(el("rect", { x: left.toFixed(2), y: (cy - 7).toFixed(2), width: width.toFixed(2), height: 14, fill: color, opacity: 0.6, rx: 3 }));
+        // Value label rides the bar's outer end, but never past the row
+        // label's column (padL) — a very negative bar would otherwise push
+        // the label left until it collides with "SYMBOL 多/空" beside it.
+        let labelX = barX >= zeroX ? barX + 8 : barX - 8;
+        let anchor = barX >= zeroX ? "start" : "end";
+        if (labelX < padL + 4) {
+          labelX = padL + 4;
+          anchor = "start";
+        }
+        const valueLabel = el("text", { x: labelX.toFixed(2), y: (cy + 4).toFixed(2), "font-size": 10, "text-anchor": anchor });
+        valueLabel.textContent = `${c.stats.avgReturnPct.toFixed(3)}%`;
+        svg.appendChild(valueLabel);
+      } else {
+        const noneLabel = el("text", { x: (padL + 4).toFixed(2), y: (cy + 4).toFixed(2), "font-size": 10, fill: "var(--ink-muted)" });
+        noneLabel.textContent = "樣本不足";
+        svg.appendChild(noneLabel);
+      }
+    });
   }
 
   async function connect() {
