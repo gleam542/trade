@@ -1,8 +1,9 @@
 import argparse
+import sys
 
 from config import DB_PATH, DEFAULT_INTERVAL, DEFAULT_LIMIT, DEFAULT_SYMBOLS
 from db import get_connection, upsert_klines
-from fetch import fetch_klines
+from fetch import FetchError, fetch_klines
 
 
 def main() -> None:
@@ -13,14 +14,27 @@ def main() -> None:
     parser.add_argument("--db", default=DB_PATH, help="SQLite 資料庫檔案路徑")
     args = parser.parse_args()
 
+    failed = []
     conn = get_connection(args.db)
     try:
         for symbol in args.symbols:
-            rows = fetch_klines(symbol, args.interval, args.limit)
+            # One symbol's failure (network hiccup, rate limit, bad symbol)
+            # shouldn't abort the whole batch — record it and keep going so
+            # every other symbol still gets fetched and stored this run.
+            try:
+                rows = fetch_klines(symbol, args.interval, args.limit)
+            except FetchError as e:
+                print(f"{symbol}: 抓取失敗 — {e}")
+                failed.append(symbol)
+                continue
             upsert_klines(conn, symbol, rows)
             print(f"{symbol}: 存入 {len(rows)} 筆 {args.interval} K 線資料")
     finally:
         conn.close()
+
+    if failed:
+        print(f"\n共 {len(failed)} 個交易對抓取失敗：{', '.join(failed)}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
