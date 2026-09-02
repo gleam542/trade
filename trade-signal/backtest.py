@@ -17,22 +17,32 @@ from signals import generate_signal
 DEFAULT_MIN_BARS = 60
 
 
+def _empty_result() -> dict:
+    empty_direction = {"trades": 0, "win_rate": None, "avg_return": None}
+    return {
+        "bars_tested": 0,
+        "trades": 0,
+        "win_rate": None,
+        "total_return": 0.0,
+        "final_equity": 1.0,
+        "buy_hold_return": 0.0,
+        "by_direction": {"long": dict(empty_direction), "short": dict(empty_direction)},
+    }
+
+
 def backtest(closes: list[float], min_bars: int = DEFAULT_MIN_BARS, **signal_kwargs) -> dict:
     if len(closes) < min_bars + 2:
-        return {
-            "bars_tested": 0,
-            "trades": 0,
-            "win_rate": None,
-            "total_return": 0.0,
-            "final_equity": 1.0,
-            "buy_hold_return": 0.0,
-        }
+        return _empty_result()
 
     equity = 1.0
     total_return = 0.0
     wins = 0
     trades = 0
     bars_tested = 0
+    direction_stats = {
+        "long": {"trades": 0, "wins": 0, "sum_return": 0.0},
+        "short": {"trades": 0, "wins": 0, "sum_return": 0.0},
+    }
 
     for i in range(min_bars, len(closes) - 1):
         window = closes[: i + 1]
@@ -46,7 +56,12 @@ def backtest(closes: list[float], min_bars: int = DEFAULT_MIN_BARS, **signal_kwa
         else:
             bar_return = 0.0
 
-        if result["signal"] != "neutral":
+        if result["signal"] in direction_stats:
+            bucket = direction_stats[result["signal"]]
+            bucket["trades"] += 1
+            bucket["sum_return"] += bar_return
+            if bar_return > 0:
+                bucket["wins"] += 1
             trades += 1
             if bar_return > 0:
                 wins += 1
@@ -57,6 +72,14 @@ def backtest(closes: list[float], min_bars: int = DEFAULT_MIN_BARS, **signal_kwa
 
     buy_hold_return = (closes[-1] - closes[min_bars]) / closes[min_bars]
 
+    by_direction = {}
+    for direction, bucket in direction_stats.items():
+        by_direction[direction] = {
+            "trades": bucket["trades"],
+            "win_rate": (bucket["wins"] / bucket["trades"]) if bucket["trades"] else None,
+            "avg_return": (bucket["sum_return"] / bucket["trades"]) if bucket["trades"] else None,
+        }
+
     return {
         "bars_tested": bars_tested,
         "trades": trades,
@@ -64,6 +87,7 @@ def backtest(closes: list[float], min_bars: int = DEFAULT_MIN_BARS, **signal_kwa
         "total_return": total_return,
         "final_equity": equity,
         "buy_hold_return": buy_hold_return,
+        "by_direction": by_direction,
     }
 
 

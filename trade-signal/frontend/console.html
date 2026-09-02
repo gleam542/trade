@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signal Console (Local)</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --surface-raised: #ffffff;
+    --ink: #0b0b0b;
+    --ink-secondary: #52514e;
+    --ink-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --series-price: #2a78d6;
+    --series-band: #eb6834;
+    --series-rsi: #1baf7a;
+    --good: #0ca30c;
+    --good-rgb: 12, 163, 12;
+    --critical: #d03b3b;
+    --critical-rgb: 208, 59, 59;
+    --accent: #2a78d6;
+    --accent-rgb: 42, 120, 214;
+    --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 8px 24px rgba(11, 11, 11, 0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --surface-raised: #202020;
+      --ink: #ffffff; --ink-secondary: #c3c2b7; --ink-muted: #8b8983;
+      --grid: #2c2c2a; --baseline: #383835; --border: rgba(255, 255, 255, 0.10);
+      --series-price: #3987e5; --series-band: #d95926; --series-rsi: #199e70;
+      --good: #0ca30c; --good-rgb: 12, 163, 12;
+      --critical: #e2685a; --critical-rgb: 226, 104, 90;
+      --accent: #3987e5; --accent-rgb: 57, 135, 229;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 28px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-raised: #202020;
+    --ink: #ffffff; --ink-secondary: #c3c2b7; --ink-muted: #8b8983;
+    --grid: #2c2c2a; --baseline: #383835; --border: rgba(255, 255, 255, 0.10);
+    --series-price: #3987e5; --series-band: #d95926; --series-rsi: #199e70;
+    --good: #0ca30c; --good-rgb: 12, 163, 12;
+    --critical: #e2685a; --critical-rgb: 226, 104, 90;
+    --accent: #3987e5; --accent-rgb: 57, 135, 229;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 28px rgba(0,0,0,0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .app { max-width: 1180px; margin: 0 auto; padding: 28px 24px 64px; display: flex; flex-direction: column; gap: 18px; }
+  h1, h2 { text-wrap: balance; margin: 0; }
+  .num { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: linear-gradient(155deg, rgba(var(--accent-rgb), 0.18), rgba(var(--accent-rgb), 0.05));
+    border: 1px solid rgba(var(--accent-rgb), 0.35);
+    display: flex; align-items: center; justify-content: center;
+    font-family: "IBM Plex Mono", monospace; font-weight: 600; color: var(--accent); font-size: 18px; flex-shrink: 0;
+  }
+  .brand-text h1 { font-family: "IBM Plex Mono", monospace; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+  .brand-text .subtitle { margin: 2px 0 0; font-size: 12.5px; color: var(--ink-muted); }
+
+  .conn-row { display: flex; align-items: center; gap: 8px; }
+  .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-muted); flex-shrink: 0; }
+  .conn-dot.ok { background: var(--good); }
+  .conn-dot.err { background: var(--critical); }
+  .api-input {
+    font: inherit; font-family: "IBM Plex Mono", monospace; font-size: 12.5px;
+    padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--ink); width: 220px;
+  }
+  .api-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .conn-btn {
+    font: inherit; font-family: "IBM Plex Mono", monospace; font-size: 12.5px;
+    padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--ink-secondary); cursor: pointer;
+  }
+  .conn-btn:hover { color: var(--ink); border-color: rgba(var(--accent-rgb), 0.4); }
+
+  .symbol-tabs { display: flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; flex-wrap: wrap; }
+  .tab {
+    font: inherit; font-family: "IBM Plex Mono", monospace; font-size: 12.5px; font-weight: 500;
+    color: var(--ink-secondary); background: transparent; border: none; border-radius: 7px;
+    padding: 8px 14px; cursor: pointer; transition: background 120ms ease, color 120ms ease;
+  }
+  .tab:hover { background: rgba(var(--accent-rgb), 0.08); color: var(--ink); }
+  .tab.active { background: var(--accent); color: #fff; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .local-banner {
+    display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; color: var(--ink-secondary);
+    background: rgba(var(--accent-rgb), 0.08); border: 1px solid rgba(var(--accent-rgb), 0.3);
+    border-radius: 10px; padding: 10px 14px;
+  }
+  .local-banner b { color: var(--ink); }
+  .local-banner code {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+    padding: 1px 5px; font-family: "IBM Plex Mono", monospace;
+  }
+
+  .error-banner {
+    display: none; gap: 10px; font-size: 12.5px; color: var(--ink);
+    background: rgba(var(--critical-rgb), 0.1); border: 1px solid rgba(var(--critical-rgb), 0.35);
+    border-radius: 10px; padding: 10px 14px;
+  }
+  .error-banner.visible { display: flex; }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px 10px; box-shadow: var(--shadow); }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  .panel-head h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; color: var(--ink-secondary); text-transform: uppercase; }
+  .legend { display: flex; gap: 14px; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; }
+  .legend li { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-secondary); }
+  .legend .key { width: 14px; height: 2px; border-radius: 1px; flex-shrink: 0; }
+  .legend .key.area { width: 12px; height: 8px; border-radius: 2px; opacity: 0.55; }
+  .legend .key.tri-up { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 8px solid var(--good); }
+  .legend .key.tri-down { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 8px solid var(--critical); }
+
+  .chart-wrap { position: relative; min-height: 60px; }
+  .chart-wrap svg { display: block; width: 100%; height: auto; touch-action: none; }
+  .chart-wrap svg text { fill: var(--ink-muted); font-family: "IBM Plex Mono", monospace; }
+  .crosshair-line { stroke: var(--ink-muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0; pointer-events: none; }
+  .crosshair-dot { opacity: 0; pointer-events: none; }
+  .placeholder-text { font-size: 12.5px; color: var(--ink-muted); padding: 24px 4px; }
+
+  .tooltip {
+    position: absolute; top: 8px; pointer-events: none; background: var(--surface-raised);
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 12px;
+    box-shadow: var(--shadow); min-width: 190px; opacity: 0; transition: opacity 80ms ease; z-index: 5;
+  }
+  .tooltip.visible { opacity: 1; }
+  .tooltip .t-date { font-family: "IBM Plex Mono", monospace; color: var(--ink-muted); font-size: 11px; margin-bottom: 6px; }
+  .tooltip .t-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 1.5px 0; }
+  .tooltip .t-row .t-key { display: flex; align-items: center; gap: 6px; color: var(--ink-secondary); }
+  .tooltip .t-row .t-key .stroke { width: 10px; height: 2px; border-radius: 1px; }
+  .tooltip .t-row .t-val { font-family: "IBM Plex Mono", monospace; font-weight: 600; color: var(--ink); }
+  .tooltip .t-badge { margin-top: 6px; display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+  .tooltip .t-badge.long { background: rgba(var(--good-rgb), 0.14); color: var(--good); }
+  .tooltip .t-badge.short { background: rgba(var(--critical-rgb), 0.14); color: var(--critical); }
+
+  .scrubber-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px 2px; }
+  .scrubber-row label { font-size: 11px; color: var(--ink-muted); white-space: nowrap; }
+  .scrubber { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 2px; background: var(--grid); }
+  .scrubber::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface-raised); cursor: pointer; }
+  .scrubber::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface-raised); cursor: pointer; }
+
+  .summary-strip { display: flex; align-items: stretch; gap: 14px; flex-wrap: wrap; }
+  .signal-pill { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 132px; padding: 12px 20px; border-radius: 12px; font-family: "IBM Plex Mono", monospace; border: 1px solid var(--border); background: var(--surface); }
+  .signal-pill .eyebrow { font-size: 11px; letter-spacing: 0.08em; color: var(--ink-muted); text-transform: uppercase; }
+  .signal-pill .verdict { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .signal-pill[data-state="long"] { border-color: rgba(var(--good-rgb), 0.4); background: rgba(var(--good-rgb), 0.08); }
+  .signal-pill[data-state="long"] .verdict { color: var(--good); }
+  .signal-pill[data-state="short"] { border-color: rgba(var(--critical-rgb), 0.4); background: rgba(var(--critical-rgb), 0.08); }
+  .signal-pill[data-state="short"] .verdict { color: var(--critical); }
+  .signal-pill[data-state="neutral"] .verdict { color: var(--ink-secondary); }
+  .stat-tiles { display: flex; gap: 18px; margin-left: auto; flex-wrap: wrap; align-content: center; }
+  .stat { display: flex; flex-direction: column; gap: 2px; min-width: 92px; }
+  .stat .label { font-size: 11px; color: var(--ink-muted); }
+  .stat .value { font-family: "IBM Plex Mono", monospace; font-size: 16px; font-weight: 600; }
+  .reason-line { font-size: 12.5px; color: var(--ink-secondary); flex-basis: 100%; }
+  .reason-line b { color: var(--ink); font-weight: 600; }
+
+  .advisor { display: flex; flex-direction: column; gap: 14px; }
+  .advisor-head { display: flex; flex-direction: column; gap: 2px; }
+  .advisor-head h2 { font-size: 15px; font-weight: 600; }
+  .advisor-head p { margin: 0; font-size: 12.5px; color: var(--ink-muted); }
+  .advisor-body { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 20px; align-items: start; }
+  .advisor-form { display: flex; flex-direction: column; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 12px; color: var(--ink-secondary); }
+  .field .input-row { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--page); overflow: hidden; }
+  .field input[type="number"] { flex: 1; min-width: 0; font: inherit; font-family: "IBM Plex Mono", monospace; font-size: 14px; padding: 9px 10px; border: none; background: transparent; color: var(--ink); }
+  .field input[type="number"]:focus { outline: none; }
+  .field .input-row:focus-within { border-color: var(--accent); }
+  .field .unit { padding: 0 10px; font-size: 12px; color: var(--ink-muted); border-left: 1px solid var(--border); white-space: nowrap; }
+  .advisor-result { border: 1px solid var(--border); border-radius: 12px; background: var(--page); padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-height: 60px; }
+  .rec-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .rec-symbol { display: flex; flex-direction: column; gap: 2px; }
+  .rec-symbol .eyebrow { font-size: 11px; letter-spacing: 0.06em; color: var(--ink-muted); text-transform: uppercase; }
+  .rec-symbol .value { font-family: "IBM Plex Mono", monospace; font-size: 20px; font-weight: 600; }
+  .rec-direction { font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 999px; }
+  .rec-direction.long { background: rgba(var(--good-rgb), 0.14); color: var(--good); }
+  .rec-direction.short { background: rgba(var(--critical-rgb), 0.14); color: var(--critical); }
+  .rec-direction.none { background: var(--surface); color: var(--ink-muted); border: 1px solid var(--border); }
+  .confidence-block { margin-left: auto; min-width: 150px; }
+  .confidence-block .label { font-size: 11px; color: var(--ink-muted); display: flex; justify-content: space-between; }
+  .confidence-track { height: 6px; border-radius: 3px; background: var(--grid); margin-top: 4px; overflow: hidden; }
+  .confidence-fill { height: 100%; border-radius: 3px; background: var(--accent); }
+  .rec-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 18px; }
+  .rec-stat { display: flex; flex-direction: column; gap: 2px; }
+  .rec-stat .label { font-size: 11px; color: var(--ink-muted); }
+  .rec-stat .value { font-family: "IBM Plex Mono", monospace; font-size: 14px; font-weight: 600; }
+  .pace-note { font-size: 12.5px; padding: 9px 12px; border-radius: 8px; display: flex; gap: 8px; }
+  .pace-note.ok { background: rgba(var(--good-rgb), 0.08); color: var(--ink); }
+  .pace-note.stretch { background: rgba(var(--critical-rgb), 0.08); color: var(--ink); }
+  .pace-note.unknown { background: var(--surface); color: var(--ink-secondary); }
+  .advisor-disclaimer { font-size: 11.5px; color: var(--ink-muted); }
+  @media (max-width: 760px) { .advisor-body { grid-template-columns: 1fr; } }
+
+  .table-section { display: flex; flex-direction: column; gap: 10px; }
+  .table-toggle {
+    align-self: flex-start; font: inherit; font-family: "IBM Plex Mono", monospace; font-size: 12px;
+    color: var(--ink-secondary); background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px; cursor: pointer;
+  }
+  .table-toggle:hover { color: var(--ink); border-color: rgba(var(--accent-rgb), 0.4); }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { padding: 7px 12px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: "IBM Plex Mono", monospace; }
+  th:first-child, td:first-child { text-align: left; font-family: "IBM Plex Sans", sans-serif; }
+  thead th { position: sticky; top: 0; background: var(--surface); color: var(--ink-muted); font-weight: 500; font-size: 11px; letter-spacing: 0.03em; border-bottom: 1px solid var(--grid); }
+  tbody tr:nth-child(even) { background: rgba(var(--accent-rgb), 0.03); }
+  td.sig-long { color: var(--good); font-weight: 600; }
+  td.sig-short { color: var(--critical); font-weight: 600; }
+
+  footer.foot { font-size: 11.5px; color: var(--ink-muted); text-align: center; padding-top: 4px; }
+  @media (max-width: 640px) {
+    .stat-tiles { margin-left: 0; }
+    .topbar { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">◈</div>
+      <div class="brand-text">
+        <h1>Signal Console</h1>
+        <p class="subtitle">連接本機 <span class="num">trade-signal</span> API 的即時版本</p>
+      </div>
+    </div>
+    <div class="conn-row">
+      <span class="conn-dot" id="connDot"></span>
+      <input class="api-input" id="apiBase" value="http://localhost:8000" spellcheck="false">
+      <button class="conn-btn" id="reconnectBtn">重新連線</button>
+    </div>
+  </header>
+
+  <div class="local-banner">
+    <span>ℹ</span>
+    <span>此頁面需要 <b>本機執行的 API 伺服器</b> 才能顯示資料：先 <code>cd trade-signal &amp;&amp; python main.py</code> 抓資料，再 <code>uvicorn api:app --reload --port 8000</code> 啟動 API，最後直接用瀏覽器開啟這個檔案（或用任何靜態伺服器）。這個檔案<b>不是</b>透過 Claude Artifact 發布的頁面——那個版本連不到你本機的伺服器。</span>
+  </div>
+
+  <div class="error-banner" id="errorBanner">
+    <span>⚠</span>
+    <span id="errorText"></span>
+  </div>
+
+  <nav class="symbol-tabs" id="symbolTabs" role="tablist" aria-label="交易對"></nav>
+
+  <section class="panel advisor">
+    <div class="advisor-head">
+      <h2>策略試算</h2>
+      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描目前追蹤的交易對，挑出訊號分數最高者作為參考——非保證達成的投資建議。</p>
+    </div>
+    <div class="advisor-body">
+      <div class="advisor-form">
+        <div class="field">
+          <label for="inputCapital">投入金額</label>
+          <div class="input-row"><input type="number" id="inputCapital" value="1000" min="1" step="1"><span class="unit">USDT</span></div>
+        </div>
+        <div class="field">
+          <label for="inputProfit">預計盈利</label>
+          <div class="input-row"><input type="number" id="inputProfit" value="5" min="0.1" step="0.1"><span class="unit">%</span></div>
+        </div>
+        <div class="field">
+          <label for="inputHours">預計多少小時達到</label>
+          <div class="input-row"><input type="number" id="inputHours" value="24" min="1" step="1"><span class="unit">小時</span></div>
+        </div>
+      </div>
+      <div class="advisor-result" id="advisorResult">
+        <p class="placeholder-text">尚未連線至 API。</p>
+      </div>
+    </div>
+    <p class="advisor-disclaimer">信心率＝目前 RSI／MACD／布林通道三項指標中同向觸發的比例；歷史步調來自 <span class="num">backtest.py</span> 對你資料庫裡實際儲存資料的回測，並非保證。本區塊不構成投資建議。</p>
+  </section>
+
+  <section class="summary-strip" id="summaryStrip" aria-live="polite"></section>
+
+  <section class="panel" id="pricePanel">
+    <div class="panel-head">
+      <h2>價格 &amp; 布林通道</h2>
+      <ul class="legend">
+        <li><span class="key" style="background:var(--series-price)"></span>收盤價</li>
+        <li><span class="key area" style="background:var(--series-band)"></span>布林通道 (20, 2σ)</li>
+        <li><span class="key tri-up"></span>做多訊號</li>
+        <li><span class="key tri-down"></span>做空訊號</li>
+      </ul>
+    </div>
+    <div class="chart-wrap" id="priceWrap">
+      <svg id="priceSvg" viewBox="0 0 960 300" preserveAspectRatio="none" role="img" aria-label="價格與布林通道走勢圖"></svg>
+      <div class="tooltip" id="tooltip"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="rsiPanel">
+    <div class="panel-head">
+      <h2>RSI (14)</h2>
+      <ul class="legend">
+        <li><span class="key" style="background:var(--series-rsi)"></span>RSI</li>
+        <li style="color:var(--critical)">70 超買</li>
+        <li style="color:var(--good)">30 超賣</li>
+      </ul>
+    </div>
+    <div class="chart-wrap" id="rsiWrap"><svg id="rsiSvg" viewBox="0 0 960 140" preserveAspectRatio="none" role="img" aria-label="RSI 指標走勢圖"></svg></div>
+  </section>
+
+  <section class="panel" id="macdPanel">
+    <div class="panel-head">
+      <h2>MACD (12, 26, 9)</h2>
+      <ul class="legend">
+        <li><span class="key" style="background:var(--series-price)"></span>MACD</li>
+        <li><span class="key" style="background:var(--series-band)"></span>訊號線</li>
+        <li><span class="key area" style="background:var(--good)"></span>柱狀圖（動能）</li>
+      </ul>
+    </div>
+    <div class="chart-wrap" id="macdWrap"><svg id="macdSvg" viewBox="0 0 960 160" preserveAspectRatio="none" role="img" aria-label="MACD 指標走勢圖"></svg></div>
+  </section>
+
+  <div class="scrubber-row">
+    <label for="scrubber">鍵盤 / 觸控掃描：</label>
+    <input type="range" id="scrubber" class="scrubber" min="0" max="0" value="0" aria-label="沿時間軸掃描查看數值">
+  </div>
+
+  <section class="table-section">
+    <button class="table-toggle" id="tableToggle" aria-expanded="false" aria-controls="tableWrap">顯示原始資料表 ▾</button>
+    <div class="table-wrap" id="tableWrap" hidden>
+      <table>
+        <thead><tr><th>時間</th><th>收盤</th><th>RSI</th><th>MACD</th><th>訊號線</th><th>布林上軌</th><th>布林下軌</th><th>分數</th><th>判斷</th></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="foot">資料來自本機 API，僅供技術示範，不構成投資建議。 · <span class="num">trade-signal</span></footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const SYMBOL_LABEL = { long: "做多", short: "做空", neutral: "觀望" };
+  let current = null;
+  let currentBars = [];
+
+  const symbolTabs = document.getElementById("symbolTabs");
+  const priceSvg = document.getElementById("priceSvg");
+  const rsiSvg = document.getElementById("rsiSvg");
+  const macdSvg = document.getElementById("macdSvg");
+  const tooltip = document.getElementById("tooltip");
+  const priceWrap = document.getElementById("priceWrap");
+  const scrubber = document.getElementById("scrubber");
+  const summaryStrip = document.getElementById("summaryStrip");
+  const tableBody = document.getElementById("tableBody");
+  const tableToggle = document.getElementById("tableToggle");
+  const tableWrap = document.getElementById("tableWrap");
+  const advisorResult = document.getElementById("advisorResult");
+  const connDot = document.getElementById("connDot");
+  const apiBaseInput = document.getElementById("apiBase");
+  const errorBanner = document.getElementById("errorBanner");
+  const errorText = document.getElementById("errorText");
+
+  function apiBase() {
+    return apiBaseInput.value.trim().replace(/\/+$/, "");
+  }
+
+  function showError(msg) {
+    errorText.textContent = msg;
+    errorBanner.classList.add("visible");
+    connDot.className = "conn-dot err";
+  }
+  function clearError() {
+    errorBanner.classList.remove("visible");
+  }
+
+  async function apiGet(path) {
+    const url = apiBase() + path;
+    let resp;
+    try {
+      resp = await fetch(url);
+    } catch (e) {
+      throw new Error(`無法連線到 ${apiBase()}（${e.message}）。請確認 uvicorn api:app 是否正在執行，以及瀏覽器主控台有無 CORS 錯誤。`);
+    }
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error(`API 回應 ${resp.status}：${body}`);
+    }
+    return resp.json();
+  }
+
+  const NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs) {
+    const node = document.createElementNS(NS, tag);
+    for (const k in attrs) node.setAttribute(k, attrs[k]);
+    return node;
+  }
+  function fmtDate(ts) {
+    const d = new Date(ts);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:00 UTC`;
+  }
+  function fmtPrice(v) {
+    if (v >= 1000) return v.toFixed(0);
+    if (v >= 100) return v.toFixed(1);
+    return v.toFixed(3);
+  }
+  function makeXScale(n, width, padL, padR) {
+    const innerW = width - padL - padR;
+    return (i) => (n <= 1 ? padL : padL + (i / (n - 1)) * innerW);
+  }
+  function makeYScale(min, max, height, padT, padB) {
+    const innerH = height - padT - padB;
+    const span = max - min || 1;
+    return (v) => padT + innerH - ((v - min) / span) * innerH;
+  }
+  function pathFor(values, x, y) {
+    let d = "";
+    values.forEach((v, i) => {
+      if (v === null || v === undefined) return;
+      d += (d ? " L " : "M ") + x(i).toFixed(2) + " " + y(v).toFixed(2);
+    });
+    return d;
+  }
+
+  function renderPrice(data) {
+    priceSvg.textContent = "";
+    const W = 960, H = 300, padL = 4, padR = 4, padT = 14, padB = 20;
+    const n = data.length;
+    const closes = data.map((d) => d.c);
+    const lows = data.map((d) => Math.min(d.l, d.bbLower));
+    const highs = data.map((d) => Math.max(d.h, d.bbUpper));
+    const min = Math.min(...lows), max = Math.max(...highs);
+    const x = makeXScale(n, W, padL, padR);
+    const y = makeYScale(min, max, H, padT, padB);
+
+    const gridG = el("g", {});
+    const steps = 4;
+    for (let s = 0; s <= steps; s++) {
+      const v = min + ((max - min) * s) / steps;
+      const yy = y(v);
+      gridG.appendChild(el("line", { x1: padL, x2: W - padR, y1: yy.toFixed(2), y2: yy.toFixed(2), stroke: "var(--grid)", "stroke-width": 1 }));
+      const t = el("text", { x: W - padR - 4, y: (yy - 4).toFixed(2), "font-size": 9, "text-anchor": "end" });
+      t.textContent = fmtPrice(v);
+      gridG.appendChild(t);
+    }
+    priceSvg.appendChild(gridG);
+
+    const upperPts = data.map((d, i) => [x(i), y(d.bbUpper)]);
+    const lowerPts = data.map((d, i) => [x(i), y(d.bbLower)]).reverse();
+    const areaD = "M " + upperPts.map((p) => p.map((v) => v.toFixed(2)).join(",")).join(" L ") +
+      " L " + lowerPts.map((p) => p.map((v) => v.toFixed(2)).join(",")).join(" L ") + " Z";
+    priceSvg.appendChild(el("path", { d: areaD, fill: "var(--series-band)", opacity: 0.10, stroke: "none" }));
+    priceSvg.appendChild(el("path", { d: pathFor(data.map((d) => d.bbUpper), x, y), fill: "none", stroke: "var(--series-band)", "stroke-width": 1, opacity: 0.55 }));
+    priceSvg.appendChild(el("path", { d: pathFor(data.map((d) => d.bbLower), x, y), fill: "none", stroke: "var(--series-band)", "stroke-width": 1, opacity: 0.55 }));
+    priceSvg.appendChild(el("path", { d: pathFor(closes, x, y), fill: "none", stroke: "var(--series-price)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+
+    data.forEach((d, i) => {
+      if (d.signal !== "long" && d.signal !== "short") return;
+      const cx = x(i);
+      const isLong = d.signal === "long";
+      const cy = y(d.c) + (isLong ? 12 : -12);
+      priceSvg.appendChild(el("circle", { cx: cx.toFixed(2), cy: cy.toFixed(2), r: 7, fill: "var(--surface)" }));
+      const half = 5, h2 = 8;
+      const points = isLong
+        ? `${cx - half},${(cy + h2 / 2).toFixed(2)} ${cx + half},${(cy + h2 / 2).toFixed(2)} ${cx},${(cy - h2 / 2).toFixed(2)}`
+        : `${cx - half},${(cy - h2 / 2).toFixed(2)} ${cx + half},${(cy - h2 / 2).toFixed(2)} ${cx},${(cy + h2 / 2).toFixed(2)}`;
+      priceSvg.appendChild(el("polygon", { points, fill: isLong ? "var(--good)" : "var(--critical)" }));
+    });
+
+    const cross = el("line", { class: "crosshair-line", id: "priceCross", x1: 0, x2: 0, y1: padT, y2: H - padB });
+    priceSvg.appendChild(cross);
+    priceSvg.appendChild(el("circle", { class: "crosshair-dot", id: "priceDot", r: 4, fill: "var(--series-price)", stroke: "var(--surface)", "stroke-width": 2 }));
+    priceSvg._scales = { x, y, n, padT, padB, H };
+  }
+
+  function renderRsi(data) {
+    rsiSvg.textContent = "";
+    const W = 960, H = 140, padL = 4, padR = 4, padT = 12, padB = 18;
+    const n = data.length;
+    const x = makeXScale(n, W, padL, padR);
+    const y = makeYScale(0, 100, H, padT, padB);
+    rsiSvg.appendChild(el("rect", { x: padL, y: y(100).toFixed(2), width: W - padL - padR, height: (y(70) - y(100)).toFixed(2), fill: "var(--critical)", opacity: 0.06 }));
+    rsiSvg.appendChild(el("rect", { x: padL, y: y(30).toFixed(2), width: W - padL - padR, height: (y(0) - y(30)).toFixed(2), fill: "var(--good)", opacity: 0.06 }));
+    [30, 50, 70].forEach((v) => {
+      const yy = y(v);
+      rsiSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: yy.toFixed(2), y2: yy.toFixed(2), stroke: v === 50 ? "var(--baseline)" : "var(--grid)", "stroke-width": 1, "stroke-dasharray": v === 50 ? "" : "3 3" }));
+      const t = el("text", { x: W - padR - 4, y: (yy - 4).toFixed(2), "font-size": 9, "text-anchor": "end" });
+      t.textContent = v;
+      rsiSvg.appendChild(t);
+    });
+    rsiSvg.appendChild(el("path", { d: pathFor(data.map((d) => d.rsi), x, y), fill: "none", stroke: "var(--series-rsi)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    const cross = el("line", { class: "crosshair-line", id: "rsiCross", x1: 0, x2: 0, y1: padT, y2: H - padB });
+    rsiSvg.appendChild(cross);
+    rsiSvg.appendChild(el("circle", { class: "crosshair-dot", id: "rsiDot", r: 4, fill: "var(--series-rsi)", stroke: "var(--surface)", "stroke-width": 2 }));
+    rsiSvg._scales = { x, y, n, padT, padB, H };
+  }
+
+  function renderMacd(data) {
+    macdSvg.textContent = "";
+    const W = 960, H = 160, padL = 4, padR = 4, padT = 12, padB = 18;
+    const n = data.length;
+    const hist = data.map((d) => d.macd - d.macdSignal);
+    const allVals = data.flatMap((d) => [d.macd, d.macdSignal]).concat(hist);
+    const bound = Math.max(...allVals.map(Math.abs)) * 1.15 || 1;
+    const x = makeXScale(n, W, padL, padR);
+    const y = makeYScale(-bound, bound, H, padT, padB);
+    const zeroY = y(0);
+    macdSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: zeroY.toFixed(2), y2: zeroY.toFixed(2), stroke: "var(--baseline)", "stroke-width": 1 }));
+    const barW = Math.max(0.6, Math.min(3, (W - padL - padR) / n - 1));
+    hist.forEach((v, i) => {
+      const cx = x(i);
+      const top = Math.min(zeroY, y(v));
+      const h = Math.abs(y(v) - zeroY);
+      macdSvg.appendChild(el("rect", { x: (cx - barW / 2).toFixed(2), y: top.toFixed(2), width: barW.toFixed(2), height: Math.max(h, 0.5).toFixed(2), fill: v >= 0 ? "var(--good)" : "var(--critical)", opacity: 0.55 }));
+    });
+    macdSvg.appendChild(el("path", { d: pathFor(data.map((d) => d.macd), x, y), fill: "none", stroke: "var(--series-price)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    macdSvg.appendChild(el("path", { d: pathFor(data.map((d) => d.macdSignal), x, y), fill: "none", stroke: "var(--series-band)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    const cross = el("line", { class: "crosshair-line", id: "macdCross", x1: 0, x2: 0, y1: padT, y2: H - padB });
+    macdSvg.appendChild(cross);
+    macdSvg.appendChild(el("circle", { class: "crosshair-dot", id: "macdDot", r: 4, fill: "var(--series-price)", stroke: "var(--surface)", "stroke-width": 2 }));
+    macdSvg._scales = { x, y, n, padT, padB, H };
+  }
+
+  function renderSummary(data) {
+    const last = data[data.length - 1];
+    const state = last.signal;
+    const reasonText = last.reason || "資料不足";
+    summaryStrip.innerHTML = `
+      <div class="signal-pill" data-state="${state}">
+        <span class="eyebrow">最新判斷</span>
+        <span class="verdict">${SYMBOL_LABEL[state]}</span>
+      </div>
+      <div class="stat-tiles">
+        <div class="stat"><span class="label">最新收盤</span><span class="value tabular">${fmtPrice(last.c)}</span></div>
+        <div class="stat"><span class="label">RSI</span><span class="value tabular">${last.rsi.toFixed(1)}</span></div>
+        <div class="stat"><span class="label">總分</span><span class="value tabular">${last.score > 0 ? "+" + last.score : last.score}</span></div>
+      </div>
+      <div class="reason-line">理由：<b>${reasonText}</b></div>
+    `;
+  }
+
+  function renderTable(data) {
+    tableBody.innerHTML = data.map((d) => {
+      const sigClass = d.signal === "long" ? "sig-long" : d.signal === "short" ? "sig-short" : "";
+      return `<tr>
+        <td>${fmtDate(d.t)}</td><td>${fmtPrice(d.c)}</td><td>${d.rsi.toFixed(1)}</td>
+        <td>${d.macd.toFixed(2)}</td><td>${d.macdSignal.toFixed(2)}</td>
+        <td>${fmtPrice(d.bbUpper)}</td><td>${fmtPrice(d.bbLower)}</td>
+        <td>${d.score > 0 ? "+" + d.score : d.score}</td><td class="${sigClass}">${SYMBOL_LABEL[d.signal]}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  function showCrosshair(i) {
+    if (!currentBars.length || i < 0 || i >= currentBars.length) return;
+    const d = currentBars[i];
+    [priceSvg, rsiSvg, macdSvg].forEach((svg) => {
+      const s = svg._scales;
+      if (!s) return;
+      const xx = s.x(i).toFixed(2);
+      const cross = svg.querySelector(".crosshair-line");
+      cross.setAttribute("x1", xx); cross.setAttribute("x2", xx); cross.style.opacity = 1;
+    });
+    document.getElementById("priceDot").setAttribute("cx", priceSvg._scales.x(i).toFixed(2));
+    document.getElementById("priceDot").setAttribute("cy", priceSvg._scales.y(d.c).toFixed(2));
+    document.getElementById("priceDot").style.opacity = 1;
+    document.getElementById("rsiDot").setAttribute("cx", rsiSvg._scales.x(i).toFixed(2));
+    document.getElementById("rsiDot").setAttribute("cy", rsiSvg._scales.y(d.rsi).toFixed(2));
+    document.getElementById("rsiDot").style.opacity = 1;
+    document.getElementById("macdDot").setAttribute("cx", macdSvg._scales.x(i).toFixed(2));
+    document.getElementById("macdDot").setAttribute("cy", macdSvg._scales.y(d.macd).toFixed(2));
+    document.getElementById("macdDot").style.opacity = 1;
+
+    const badge = (d.signal === "long" || d.signal === "short") ? `<div class="t-badge ${d.signal}">${SYMBOL_LABEL[d.signal]} 訊號</div>` : "";
+    tooltip.innerHTML = `
+      <div class="t-date">${fmtDate(d.t)}</div>
+      <div class="t-row"><span class="t-key"><span class="stroke" style="background:var(--series-price)"></span>收盤</span><span class="t-val">${fmtPrice(d.c)}</span></div>
+      <div class="t-row"><span class="t-key"><span class="stroke" style="background:var(--series-rsi)"></span>RSI</span><span class="t-val">${d.rsi.toFixed(1)}</span></div>
+      <div class="t-row"><span class="t-key"><span class="stroke" style="background:var(--series-price)"></span>MACD</span><span class="t-val">${d.macd.toFixed(2)}</span></div>
+      <div class="t-row"><span class="t-key"><span class="stroke" style="background:var(--series-band)"></span>訊號線</span><span class="t-val">${d.macdSignal.toFixed(2)}</span></div>
+      <div class="t-row"><span class="t-key">布林上/下軌</span><span class="t-val">${fmtPrice(d.bbUpper)} / ${fmtPrice(d.bbLower)}</span></div>
+      ${badge}
+    `;
+    tooltip.classList.add("visible");
+    const wrapRect = priceWrap.getBoundingClientRect();
+    const px = (priceSvg._scales.x(i) / 960) * wrapRect.width;
+    let left = px + 14;
+    if (left + 210 > wrapRect.width) left = px - 210 - 14;
+    tooltip.style.left = Math.max(4, left) + "px";
+    scrubber.value = String(i);
+  }
+  function hideCrosshair() {
+    document.querySelectorAll(".crosshair-line, .crosshair-dot").forEach((n) => (n.style.opacity = 0));
+    tooltip.classList.remove("visible");
+  }
+  function indexFromClientX(clientX) {
+    const rect = priceWrap.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    return Math.round(frac * (currentBars.length - 1));
+  }
+  [priceWrap, document.getElementById("rsiWrap"), document.getElementById("macdWrap")].forEach((wrap) => {
+    wrap.addEventListener("pointermove", (e) => showCrosshair(indexFromClientX(e.clientX)));
+    wrap.addEventListener("pointerleave", hideCrosshair);
+  });
+  scrubber.addEventListener("input", () => showCrosshair(Number(scrubber.value)));
+  tableToggle.addEventListener("click", () => {
+    const isHidden = tableWrap.hidden;
+    tableWrap.hidden = !isHidden;
+    tableToggle.setAttribute("aria-expanded", String(isHidden));
+    tableToggle.textContent = isHidden ? "隱藏原始資料表 ▴" : "顯示原始資料表 ▾";
+  });
+
+  // ---------- data loading ----------
+  async function loadSymbol(symbol) {
+    current = symbol;
+    document.querySelectorAll(".tab").forEach((b) => {
+      const active = b.dataset.symbol === symbol;
+      b.classList.toggle("active", active);
+      b.setAttribute("aria-selected", String(active));
+    });
+    try {
+      const chart = await apiGet(`/api/chart/${encodeURIComponent(symbol)}?limit=400`);
+      const bars = chart.bars.filter((d) => d.rsi !== undefined);
+      currentBars = bars;
+      if (!bars.length) {
+        advisorResult.innerHTML = `<p class="placeholder-text">${symbol} 資料不足以計算指標（暖機期還沒過）。</p>`;
+        return;
+      }
+      renderPrice(bars); renderRsi(bars); renderMacd(bars); renderSummary(bars); renderTable(bars);
+      scrubber.max = String(bars.length - 1);
+      scrubber.value = String(bars.length - 1);
+      hideCrosshair();
+      clearError();
+      connDot.className = "conn-dot ok";
+    } catch (e) {
+      showError(e.message);
+    }
+  }
+
+  async function loadAdvice() {
+    const capital = Math.max(1, Number(document.getElementById("inputCapital").value) || 0);
+    const profitPct = Math.max(0.01, Number(document.getElementById("inputProfit").value) || 0);
+    const hours = Math.max(1, Number(document.getElementById("inputHours").value) || 1);
+    try {
+      const adv = await apiGet(`/api/advise?capital=${capital}&profit_pct=${profitPct}&hours=${hours}`);
+      clearError();
+      connDot.className = "conn-dot ok";
+      const pick = adv.pick;
+      if (!pick) {
+        advisorResult.innerHTML = `
+          <div class="rec-top">
+            <div class="rec-symbol"><span class="eyebrow">建議商品</span><span class="value">—</span></div>
+            <div class="rec-direction none">目前無明確訊號</div>
+          </div>
+          <div class="pace-note unknown">目前追蹤的交易對 RSI／MACD／布林通道皆未觸發多空訊號，建議先觀望。</div>
+        `;
+        return;
+      }
+      const dirLabel = pick.direction === "long" ? "做多" : "做空";
+      const stats = pick.stats;
+      const hasHistory = stats.trades > 0;
+      let paceClass = "unknown";
+      let paceText = "此方向尚無歷史紀錄可比對步調。";
+      if (hasHistory) {
+        if (stats.avgReturnPct <= 0) {
+          paceClass = "stretch";
+          paceText = `注意：此方向在歷史回測中平均每小時報酬為 ${stats.avgReturnPct.toFixed(3)}%（淨虧損），並非單純「步調較慢」——歷史上這個訊號方向本身就不獲利，與能否達成 ${hours} 小時的目標無關。`;
+        } else if (stats.avgReturnPct >= adv.requiredHourlyPct) {
+          paceClass = "ok";
+          paceText = `目標所需步調（每小時 ${adv.requiredHourlyPct.toFixed(3)}%）不高於歷史同方向平均步調（每小時 ${stats.avgReturnPct.toFixed(3)}%），相對貼近過去節奏。`;
+        } else {
+          paceClass = "stretch";
+          paceText = `目標所需步調（每小時 ${adv.requiredHourlyPct.toFixed(3)}%）高於歷史同方向平均步調（每小時 ${stats.avgReturnPct.toFixed(3)}%），可能需要更長時間或承擔更高風險才能達成。`;
+        }
+      }
+      advisorResult.innerHTML = `
+        <div class="rec-top">
+          <div class="rec-symbol"><span class="eyebrow">建議商品</span><span class="value">${pick.symbol}</span></div>
+          <div class="rec-direction ${pick.direction}">${dirLabel}</div>
+          <div class="confidence-block">
+            <span class="label"><span>信心率</span><span>${pick.confidence.toFixed(0)}%</span></span>
+            <div class="confidence-track"><div class="confidence-fill" style="width:${pick.confidence}%"></div></div>
+          </div>
+        </div>
+        <div class="rec-stats">
+          <div class="rec-stat"><span class="label">預計獲利金額</span><span class="value tabular">${adv.expectedProfitUsdt.toFixed(2)} USDT</span></div>
+          <div class="rec-stat"><span class="label">目標所需步調</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
+          <div class="rec-stat"><span class="label">歷史同方向平均步調</span><span class="value tabular">${hasHistory ? stats.avgReturnPct.toFixed(3) + "%／小時" : "樣本不足"}</span></div>
+          <div class="rec-stat"><span class="label">歷史同方向勝率</span><span class="value tabular">${hasHistory ? (stats.winRate * 100).toFixed(1) + "% (" + stats.trades + " 次)" : "樣本不足"}</span></div>
+        </div>
+        <div class="pace-note ${paceClass}">${paceText}</div>
+      `;
+    } catch (e) {
+      showError(e.message);
+    }
+  }
+
+  async function connect() {
+    clearError();
+    try {
+      const { symbols } = await apiGet("/api/symbols");
+      connDot.className = "conn-dot ok";
+      symbolTabs.innerHTML = symbols.map((s, idx) =>
+        `<button class="tab${idx === 0 ? " active" : ""}" data-symbol="${s}" role="tab" aria-selected="${idx === 0}">${s}</button>`
+      ).join("");
+      symbolTabs.querySelectorAll(".tab").forEach((btn) => {
+        btn.addEventListener("click", () => loadSymbol(btn.dataset.symbol));
+      });
+      if (symbols.length) {
+        await loadSymbol(symbols[0]);
+        await loadAdvice();
+      }
+    } catch (e) {
+      showError(e.message);
+    }
+  }
+
+  document.getElementById("reconnectBtn").addEventListener("click", connect);
+  ["inputCapital", "inputProfit", "inputHours"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", loadAdvice);
+  });
+
+  connect();
+})();
+</script>
+</body>
+</html>
