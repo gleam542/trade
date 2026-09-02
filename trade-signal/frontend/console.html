@@ -52,6 +52,11 @@
     --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 28px rgba(0,0,0,0.35);
   }
   * { box-sizing: border-box; }
+  /* An element's own class (e.g. .advisor sets display:flex) has the same
+     specificity as the UA stylesheet's [hidden]{display:none} and, being
+     author CSS, wins the tie — so toggling .hidden via JS silently does
+     nothing unless this is forced explicitly. */
+  [hidden] { display: none !important; }
   html, body { margin: 0; padding: 0; }
   body {
     background: var(--page);
@@ -102,6 +107,7 @@
   }
   .tab:hover { background: rgba(var(--accent-rgb), 0.08); color: var(--ink); }
   .tab.active { background: var(--accent); color: #fff; }
+  #advisorTab { margin-left: 8px; padding-left: 18px; border-left: 1px solid var(--border); border-radius: 7px; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .local-banner {
@@ -266,9 +272,13 @@
     <span id="errorText"></span>
   </div>
 
-  <nav class="symbol-tabs" id="symbolTabs" role="tablist" aria-label="交易對"></nav>
+  <nav class="symbol-tabs" role="tablist" aria-label="檢視">
+    <div id="symbolTabs" style="display:contents"></div>
+    <button class="tab" id="advisorTab" data-view="advisor" role="tab" aria-selected="false">策略試算</button>
+  </nav>
 
-  <p class="rec-scope-note">↓ 以下「最新判斷」與圖表只反映上面目前選取的分頁；跨交易對的推薦掃描在最下方的「策略試算」區塊</p>
+  <div id="symbolView">
+  <p class="rec-scope-note">↓ 以下「最新判斷」與圖表只反映上面目前選取的交易對；跨交易對的推薦掃描在另一個分頁「策略試算」</p>
   <section class="summary-strip" id="summaryStrip" aria-live="polite"></section>
 
   <section class="panel" id="pricePanel">
@@ -325,11 +335,12 @@
       </table>
     </div>
   </section>
+  </div>
 
-  <section class="panel advisor">
+  <section class="panel advisor" id="advisorView" hidden>
     <div class="advisor-head">
       <h2>策略試算</h2>
-      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的交易對，挑出訊號分數最高者作為參考——與上面目前選取的分頁無關，也不是保證達成的投資建議。</p>
+      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的交易對，挑出訊號分數最高者作為參考——跟「交易對」分頁選的是哪一個無關，也不是保證達成的投資建議。</p>
     </div>
     <div class="advisor-body">
       <div class="advisor-form">
@@ -669,7 +680,7 @@
   // ---------- data loading ----------
   async function loadSymbol(symbol) {
     current = symbol;
-    document.querySelectorAll(".tab").forEach((b) => {
+    document.querySelectorAll("#symbolTabs .tab").forEach((b) => {
       const active = b.dataset.symbol === symbol;
       b.classList.toggle("active", active);
       b.setAttribute("aria-selected", String(active));
@@ -679,7 +690,7 @@
       const bars = chart.bars.filter((d) => d.rsi !== undefined);
       currentBars = bars;
       if (!bars.length) {
-        advisorResult.innerHTML = `<p class="placeholder-text">${symbol} 資料不足以計算指標（暖機期還沒過）。</p>`;
+        summaryStrip.innerHTML = `<p class="placeholder-text">${symbol} 資料不足以計算指標（暖機期還沒過）。</p>`;
         return;
       }
       renderPrice(bars); renderRsi(bars); renderMacd(bars); renderSummary(bars); renderTable(bars);
@@ -708,7 +719,7 @@
             <div class="rec-symbol"><span class="eyebrow">建議商品</span><span class="value">—</span></div>
             <div class="rec-direction none">目前無明確訊號</div>
           </div>
-          <p class="rec-scope-note">※ 掃描全部追蹤中的交易對，與上面目前選取的分頁無關</p>
+          <p class="rec-scope-note">※ 掃描全部追蹤中的交易對，跟「交易對」分頁選的是哪一個無關</p>
           <div class="pace-note unknown">目前追蹤的交易對 RSI／MACD／布林通道皆未觸發多空訊號，建議先觀望。</div>
         `;
         renderCandidatesChart([], adv.requiredHourlyPct);
@@ -740,7 +751,7 @@
             <div class="confidence-track"><div class="confidence-fill" style="width:${pick.confidence}%"></div></div>
           </div>
         </div>
-        <p class="rec-scope-note">※ 掃描全部追蹤中的交易對後的結果，與上面目前選取的分頁無關（目前分頁：${current ?? "尚未選取"}）</p>
+        <p class="rec-scope-note">※ 掃描全部追蹤中的交易對後的結果，跟「交易對」分頁選的是哪一個無關（該分頁目前選取：${current ?? "尚未選取"}）</p>
         <div class="rec-stats">
           <div class="rec-stat"><span class="label">預計獲利金額</span><span class="value tabular">${adv.expectedProfitUsdt.toFixed(2)} USDT</span></div>
           <div class="rec-stat"><span class="label">目標所需每小時報酬率</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
@@ -828,7 +839,10 @@
         `<button class="tab${idx === 0 ? " active" : ""}" data-symbol="${s}" role="tab" aria-selected="${idx === 0}">${s}</button>`
       ).join("");
       symbolTabs.querySelectorAll(".tab").forEach((btn) => {
-        btn.addEventListener("click", () => loadSymbol(btn.dataset.symbol));
+        btn.addEventListener("click", () => {
+          showSymbolView();
+          loadSymbol(btn.dataset.symbol);
+        });
       });
       if (symbols.length) {
         await loadSymbol(symbols[0]);
@@ -839,6 +853,29 @@
     }
   }
 
+  const symbolView = document.getElementById("symbolView");
+  const advisorView = document.getElementById("advisorView");
+  const advisorTab = document.getElementById("advisorTab");
+
+  function showSymbolView() {
+    symbolView.hidden = false;
+    advisorView.hidden = true;
+    advisorTab.classList.remove("active");
+    advisorTab.setAttribute("aria-selected", "false");
+  }
+
+  function showAdvisorView() {
+    symbolView.hidden = true;
+    advisorView.hidden = false;
+    document.querySelectorAll("#symbolTabs .tab").forEach((b) => {
+      b.classList.remove("active");
+      b.setAttribute("aria-selected", "false");
+    });
+    advisorTab.classList.add("active");
+    advisorTab.setAttribute("aria-selected", "true");
+  }
+
+  advisorTab.addEventListener("click", showAdvisorView);
   document.getElementById("reconnectBtn").addEventListener("click", connect);
   ["inputCapital", "inputProfit", "inputHours"].forEach((id) => {
     document.getElementById(id).addEventListener("input", loadAdvice);
