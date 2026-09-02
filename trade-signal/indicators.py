@@ -71,3 +71,30 @@ def macd(
     histogram = [m - s for m, s in zip(macd_aligned, signal_line)]
 
     return macd_aligned, signal_line, histogram
+
+
+def bollinger_bands(
+    closes: list[float],
+    period: int = 20,
+    num_std: float = 2.0,
+) -> tuple[list[float], list[float], list[float]]:
+    """Middle/upper/lower Bollinger Bands, aligned to closes[period - 1:].
+
+    Returns three empty lists if there isn't enough data.
+    """
+    if len(closes) < period:
+        return [], [], []
+
+    middle = []
+    upper = []
+    lower = []
+    for i in range(period - 1, len(closes)):
+        window = closes[i - period + 1: i + 1]
+        mean = sum(window) / period
+        variance = sum((x - mean) ** 2 for x in window) / period
+        std = variance ** 0.5
+        middle.append(mean)
+        upper.append(mean + num_std * std)
+        lower.append(mean - num_std * std)
+
+    return middle, upper, lower
