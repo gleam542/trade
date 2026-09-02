@@ -52,6 +52,11 @@
     --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 28px rgba(0,0,0,0.35);
   }
   * { box-sizing: border-box; }
+  /* An element's own class (e.g. .advisor sets display:flex) has the same
+     specificity as the UA stylesheet's [hidden]{display:none} and, being
+     author CSS, wins the tie — so toggling .hidden via JS silently does
+     nothing unless this is forced explicitly. */
+  [hidden] { display: none !important; }
   html, body { margin: 0; padding: 0; }
   body {
     background: var(--page);
@@ -102,6 +107,7 @@
   }
   .tab:hover { background: rgba(var(--accent-rgb), 0.08); color: var(--ink); }
   .tab.active { background: var(--accent); color: #fff; }
+  #advisorTab { margin-right: 8px; padding-right: 18px; border-right: 1px solid var(--border); border-radius: 7px; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .local-banner {
@@ -266,9 +272,50 @@
     <span id="errorText"></span>
   </div>
 
-  <nav class="symbol-tabs" id="symbolTabs" role="tablist" aria-label="交易對"></nav>
+  <nav class="symbol-tabs" role="tablist" aria-label="檢視">
+    <button class="tab" id="advisorTab" data-view="advisor" role="tab" aria-selected="false">策略試算</button>
+    <div id="symbolTabs" style="display:contents"></div>
+  </nav>
 
-  <p class="rec-scope-note">↓ 以下「最新判斷」與圖表只反映上面目前選取的分頁；跨交易對的推薦掃描在最下方的「策略試算」區塊</p>
+  <section class="panel advisor" id="advisorView" hidden>
+    <div class="advisor-head">
+      <h2>策略試算</h2>
+      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的交易對，挑出訊號分數最高者作為參考，下方圖表會跟著切換到建議的交易對——也不是保證達成的投資建議。</p>
+    </div>
+    <div class="advisor-body">
+      <div class="advisor-form">
+        <div class="field">
+          <label for="inputCapital">投入金額</label>
+          <div class="input-row"><input type="number" id="inputCapital" value="1000" min="1" step="1"><span class="unit">USDT</span></div>
+        </div>
+        <div class="field">
+          <label for="inputProfit">預計盈利</label>
+          <div class="input-row"><input type="number" id="inputProfit" value="5" min="0.1" step="0.1"><span class="unit">%</span></div>
+        </div>
+        <div class="field">
+          <label for="inputHours">預計多少小時達到</label>
+          <div class="input-row"><input type="number" id="inputHours" value="24" min="1" step="1"><span class="unit">小時</span></div>
+        </div>
+      </div>
+      <div class="advisor-result" id="advisorResult">
+        <p class="placeholder-text">尚未連線至 API。</p>
+      </div>
+    </div>
+    <div class="panel-head" style="margin-top:4px;">
+      <h2>各交易對每小時報酬率比較</h2>
+      <ul class="legend">
+        <li><span class="key" style="background:var(--good)"></span>做多方向歷史每小時報酬率</li>
+        <li><span class="key" style="background:var(--critical)"></span>做空方向歷史每小時報酬率</li>
+        <li style="color:var(--ink-secondary)">┊ 目標所需每小時報酬率</li>
+      </ul>
+    </div>
+    <div class="chart-wrap" id="candidatesWrap">
+      <svg id="candidatesSvg" viewBox="0 0 960 40" preserveAspectRatio="none" role="img" aria-label="各交易對歷史每小時報酬率與目標每小時報酬率比較圖"></svg>
+    </div>
+    <p class="advisor-disclaimer">信心率＝目前 RSI／MACD／布林通道三項指標中同向觸發的比例；歷史每小時報酬率來自 <span class="num">backtest.py</span> 對你資料庫裡實際儲存資料的回測，並非保證。本區塊不構成投資建議。</p>
+  </section>
+
+  <p class="rec-scope-note" id="chartContextNote"></p>
   <section class="summary-strip" id="summaryStrip" aria-live="polite"></section>
 
   <section class="panel" id="pricePanel">
@@ -320,48 +367,10 @@
     <button class="table-toggle" id="tableToggle" aria-expanded="false" aria-controls="tableWrap">顯示原始資料表 ▾</button>
     <div class="table-wrap" id="tableWrap" hidden>
       <table>
-        <thead><tr><th>時間</th><th>收盤</th><th>RSI</th><th>MACD</th><th>訊號線</th><th>布林上軌</th><th>布林下軌</th><th>分數</th><th>判斷</th></tr></thead>
+        <thead><tr><th>時間</th><th>收盤</th><th>RSI</th><th>MACD</th><th>訊號線</th><th>布林上軌</th><th>布林下軌</th><th>分數</th><th>判斷</th><th>止損價位</th></tr></thead>
         <tbody id="tableBody"></tbody>
       </table>
     </div>
-  </section>
-
-  <section class="panel advisor">
-    <div class="advisor-head">
-      <h2>策略試算</h2>
-      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的交易對，挑出訊號分數最高者作為參考——與上面目前選取的分頁無關，也不是保證達成的投資建議。</p>
-    </div>
-    <div class="advisor-body">
-      <div class="advisor-form">
-        <div class="field">
-          <label for="inputCapital">投入金額</label>
-          <div class="input-row"><input type="number" id="inputCapital" value="1000" min="1" step="1"><span class="unit">USDT</span></div>
-        </div>
-        <div class="field">
-          <label for="inputProfit">預計盈利</label>
-          <div class="input-row"><input type="number" id="inputProfit" value="5" min="0.1" step="0.1"><span class="unit">%</span></div>
-        </div>
-        <div class="field">
-          <label for="inputHours">預計多少小時達到</label>
-          <div class="input-row"><input type="number" id="inputHours" value="24" min="1" step="1"><span class="unit">小時</span></div>
-        </div>
-      </div>
-      <div class="advisor-result" id="advisorResult">
-        <p class="placeholder-text">尚未連線至 API。</p>
-      </div>
-    </div>
-    <div class="panel-head" style="margin-top:4px;">
-      <h2>各交易對步調比較</h2>
-      <ul class="legend">
-        <li><span class="key" style="background:var(--good)"></span>做多方向歷史步調</li>
-        <li><span class="key" style="background:var(--critical)"></span>做空方向歷史步調</li>
-        <li style="color:var(--ink-secondary)">┊ 目標所需步調</li>
-      </ul>
-    </div>
-    <div class="chart-wrap" id="candidatesWrap">
-      <svg id="candidatesSvg" viewBox="0 0 960 40" preserveAspectRatio="none" role="img" aria-label="各交易對歷史步調與目標步調比較圖"></svg>
-    </div>
-    <p class="advisor-disclaimer">信心率＝目前 RSI／MACD／布林通道三項指標中同向觸發的比例；歷史步調來自 <span class="num">backtest.py</span> 對你資料庫裡實際儲存資料的回測，並非保證。本區塊不構成投資建議。</p>
   </section>
 
   <footer class="foot">資料來自本機 API，僅供技術示範，不構成投資建議。 · <span class="num">trade-signal</span></footer>
@@ -461,7 +470,13 @@
     const closes = data.map((d) => d.c);
     const lows = data.map((d) => Math.min(d.l, d.bbLower));
     const highs = data.map((d) => Math.max(d.h, d.bbUpper));
-    const min = Math.min(...lows), max = Math.max(...highs);
+    const last = data[data.length - 1];
+    const hasStopLoss = last.stopLoss != null && (last.signal === "long" || last.signal === "short");
+    let min = Math.min(...lows), max = Math.max(...highs);
+    if (hasStopLoss) {
+      min = Math.min(min, last.stopLoss);
+      max = Math.max(max, last.stopLoss);
+    }
     const x = makeXScale(n, W, padL, padR);
     const y = makeYScale(min, max, H, padT, padB);
 
@@ -498,6 +513,18 @@
         : `${cx - half},${(cy - h2 / 2).toFixed(2)} ${cx + half},${(cy - h2 / 2).toFixed(2)} ${cx},${(cy + h2 / 2).toFixed(2)}`;
       priceSvg.appendChild(el("polygon", { points, fill: isLong ? "var(--good)" : "var(--critical)" }));
     });
+
+    if (hasStopLoss) {
+      const slY = y(last.stopLoss);
+      const slColor = last.signal === "long" ? "var(--good)" : "var(--critical)";
+      priceSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: slY.toFixed(2), y2: slY.toFixed(2), stroke: slColor, "stroke-width": 1.5, "stroke-dasharray": "5 3", opacity: 0.75 }));
+      // Presentation attributes lose to the global ".chart-wrap svg text"
+      // fill rule, so an inline style is needed to actually show this label
+      // in the signal's color instead of the default muted ink.
+      const slLabel = el("text", { x: padL + 4, y: (slY - 4).toFixed(2), "font-size": 9, style: `fill:${slColor}` });
+      slLabel.textContent = `止損 ${fmtPrice(last.stopLoss)}`;
+      priceSvg.appendChild(slLabel);
+    }
 
     const cross = el("line", { class: "crosshair-line", id: "priceCross", x1: 0, x2: 0, y1: padT, y2: H - padB });
     priceSvg.appendChild(cross);
@@ -557,6 +584,9 @@
     const last = data[data.length - 1];
     const state = last.signal;
     const reasonText = last.reason || "資料不足";
+    const stopLossTile = last.stopLoss != null
+      ? `<div class="stat"><span class="label">止損價位（2×ATR）</span><span class="value tabular">${fmtPrice(last.stopLoss)}</span></div>`
+      : "";
     summaryStrip.innerHTML = `
       <div class="signal-pill" data-state="${state}">
         <span class="eyebrow">最新判斷</span>
@@ -566,6 +596,7 @@
         <div class="stat"><span class="label">最新收盤</span><span class="value tabular">${fmtPrice(last.c)}</span></div>
         <div class="stat"><span class="label">RSI</span><span class="value tabular">${last.rsi.toFixed(1)}</span></div>
         <div class="stat"><span class="label">總分</span><span class="value tabular">${last.score > 0 ? "+" + last.score : last.score}</span></div>
+        ${stopLossTile}
       </div>
       <div class="reason-line">理由：<b>${reasonText}</b></div>
     `;
@@ -579,6 +610,7 @@
         <td>${d.macd.toFixed(2)}</td><td>${d.macdSignal.toFixed(2)}</td>
         <td>${fmtPrice(d.bbUpper)}</td><td>${fmtPrice(d.bbLower)}</td>
         <td>${d.score > 0 ? "+" + d.score : d.score}</td><td class="${sigClass}">${SYMBOL_LABEL[d.signal]}</td>
+        <td>${d.stopLoss != null ? fmtPrice(d.stopLoss) : "—"}</td>
       </tr>`;
     }).join("");
   }
@@ -611,6 +643,7 @@
       <div class="t-row"><span class="t-key"><span class="stroke" style="background:var(--series-price)"></span>MACD</span><span class="t-val">${d.macd.toFixed(2)}</span></div>
       <div class="t-row"><span class="t-key"><span class="stroke" style="background:var(--series-band)"></span>訊號線</span><span class="t-val">${d.macdSignal.toFixed(2)}</span></div>
       <div class="t-row"><span class="t-key">布林上/下軌</span><span class="t-val">${fmtPrice(d.bbUpper)} / ${fmtPrice(d.bbLower)}</span></div>
+      ${d.stopLoss != null ? `<div class="t-row"><span class="t-key">止損價位</span><span class="t-val">${fmtPrice(d.stopLoss)}</span></div>` : ""}
       ${badge}
     `;
     tooltip.classList.add("visible");
@@ -643,19 +676,14 @@
   });
 
   // ---------- data loading ----------
-  async function loadSymbol(symbol) {
+  async function renderSymbolData(symbol) {
     current = symbol;
-    document.querySelectorAll(".tab").forEach((b) => {
-      const active = b.dataset.symbol === symbol;
-      b.classList.toggle("active", active);
-      b.setAttribute("aria-selected", String(active));
-    });
     try {
       const chart = await apiGet(`/api/chart/${encodeURIComponent(symbol)}?limit=400`);
       const bars = chart.bars.filter((d) => d.rsi !== undefined);
       currentBars = bars;
       if (!bars.length) {
-        advisorResult.innerHTML = `<p class="placeholder-text">${symbol} 資料不足以計算指標（暖機期還沒過）。</p>`;
+        summaryStrip.innerHTML = `<p class="placeholder-text">${symbol} 資料不足以計算指標（暖機期還沒過）。</p>`;
         return;
       }
       renderPrice(bars); renderRsi(bars); renderMacd(bars); renderSummary(bars); renderTable(bars);
@@ -678,33 +706,35 @@
       clearError();
       connDot.className = "conn-dot ok";
       const pick = adv.pick;
+      advisorPick = pick;
       if (!pick) {
         advisorResult.innerHTML = `
           <div class="rec-top">
             <div class="rec-symbol"><span class="eyebrow">建議商品</span><span class="value">—</span></div>
             <div class="rec-direction none">目前無明確訊號</div>
           </div>
-          <p class="rec-scope-note">※ 掃描全部追蹤中的交易對，與上面目前選取的分頁無關</p>
+          <p class="rec-scope-note">※ 掃描全部追蹤中的交易對，跟「交易對」分頁選的是哪一個無關</p>
           <div class="pace-note unknown">目前追蹤的交易對 RSI／MACD／布林通道皆未觸發多空訊號，建議先觀望。</div>
         `;
         renderCandidatesChart([], adv.requiredHourlyPct);
+        if (!advisorView.hidden) await syncChartsToAdvisorPick();
         return;
       }
       const dirLabel = pick.direction === "long" ? "做多" : "做空";
       const stats = pick.stats;
       const hasHistory = stats.trades > 0;
       let paceClass = "unknown";
-      let paceText = "此方向尚無歷史紀錄可比對步調。";
+      let paceText = "此方向尚無歷史紀錄可比對每小時報酬率。";
       if (hasHistory) {
         if (stats.avgReturnPct <= 0) {
           paceClass = "stretch";
-          paceText = `注意：此方向在歷史回測中平均每小時報酬為 ${stats.avgReturnPct.toFixed(3)}%（淨虧損），並非單純「步調較慢」——歷史上這個訊號方向本身就不獲利，與能否達成 ${hours} 小時的目標無關。`;
+          paceText = `注意：此方向在歷史回測中平均每小時報酬為 ${stats.avgReturnPct.toFixed(3)}%（淨虧損），並非單純「報酬率偏低」——歷史上這個訊號方向本身就不獲利，與能否達成 ${hours} 小時的目標無關。`;
         } else if (stats.avgReturnPct >= adv.requiredHourlyPct) {
           paceClass = "ok";
-          paceText = `目標所需步調（每小時 ${adv.requiredHourlyPct.toFixed(3)}%）不高於歷史同方向平均步調（每小時 ${stats.avgReturnPct.toFixed(3)}%），相對貼近過去節奏。`;
+          paceText = `目標所需每小時報酬率（${adv.requiredHourlyPct.toFixed(3)}%）不高於歷史同方向平均每小時報酬率（${stats.avgReturnPct.toFixed(3)}%），相對貼近過去節奏。`;
         } else {
           paceClass = "stretch";
-          paceText = `目標所需步調（每小時 ${adv.requiredHourlyPct.toFixed(3)}%）高於歷史同方向平均步調（每小時 ${stats.avgReturnPct.toFixed(3)}%），可能需要更長時間或承擔更高風險才能達成。`;
+          paceText = `目標所需每小時報酬率（${adv.requiredHourlyPct.toFixed(3)}%）高於歷史同方向平均每小時報酬率（${stats.avgReturnPct.toFixed(3)}%），可能需要更長時間或承擔更高風險才能達成。`;
         }
       }
       advisorResult.innerHTML = `
@@ -716,16 +746,18 @@
             <div class="confidence-track"><div class="confidence-fill" style="width:${pick.confidence}%"></div></div>
           </div>
         </div>
-        <p class="rec-scope-note">※ 掃描全部追蹤中的交易對後的結果，與上面目前選取的分頁無關（目前分頁：${current ?? "尚未選取"}）</p>
+        <p class="rec-scope-note">※ 掃描全部追蹤中的交易對後的結果——下方圖表已自動切換到 ${pick.symbol}</p>
         <div class="rec-stats">
           <div class="rec-stat"><span class="label">預計獲利金額</span><span class="value tabular">${adv.expectedProfitUsdt.toFixed(2)} USDT</span></div>
-          <div class="rec-stat"><span class="label">目標所需步調</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
-          <div class="rec-stat"><span class="label">歷史同方向平均步調</span><span class="value tabular">${hasHistory ? stats.avgReturnPct.toFixed(3) + "%／小時" : "樣本不足"}</span></div>
+          <div class="rec-stat"><span class="label">目標所需每小時報酬率</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
+          <div class="rec-stat"><span class="label">歷史同方向平均每小時報酬率</span><span class="value tabular">${hasHistory ? stats.avgReturnPct.toFixed(3) + "%／小時" : "樣本不足"}</span></div>
           <div class="rec-stat"><span class="label">歷史同方向勝率</span><span class="value tabular">${hasHistory ? (stats.winRate * 100).toFixed(1) + "% (" + stats.trades + " 次)" : "樣本不足"}</span></div>
+          <div class="rec-stat"><span class="label">止損價位（2×ATR）</span><span class="value tabular">${pick.stopLoss != null ? pick.stopLoss : "—"}</span></div>
         </div>
         <div class="pace-note ${paceClass}">${paceText}</div>
       `;
       renderCandidatesChart(adv.candidates, adv.requiredHourlyPct);
+      if (!advisorView.hidden) await syncChartsToAdvisorPick();
     } catch (e) {
       showError(e.message);
     }
@@ -803,10 +835,10 @@
         `<button class="tab${idx === 0 ? " active" : ""}" data-symbol="${s}" role="tab" aria-selected="${idx === 0}">${s}</button>`
       ).join("");
       symbolTabs.querySelectorAll(".tab").forEach((btn) => {
-        btn.addEventListener("click", () => loadSymbol(btn.dataset.symbol));
+        btn.addEventListener("click", () => activateSymbolTab(btn.dataset.symbol));
       });
       if (symbols.length) {
-        await loadSymbol(symbols[0]);
+        await activateSymbolTab(symbols[0]);
         await loadAdvice();
       }
     } catch (e) {
@@ -814,6 +846,48 @@
     }
   }
 
+  const advisorView = document.getElementById("advisorView");
+  const advisorTab = document.getElementById("advisorTab");
+  const chartContextNote = document.getElementById("chartContextNote");
+  let advisorPick = null;
+
+  async function activateSymbolTab(symbol) {
+    advisorView.hidden = true;
+    advisorTab.classList.remove("active");
+    advisorTab.setAttribute("aria-selected", "false");
+    document.querySelectorAll("#symbolTabs .tab").forEach((b) => {
+      const active = b.dataset.symbol === symbol;
+      b.classList.toggle("active", active);
+      b.setAttribute("aria-selected", String(active));
+    });
+    chartContextNote.textContent = "";
+    await renderSymbolData(symbol);
+  }
+
+  async function activateAdvisorTab() {
+    advisorView.hidden = false;
+    advisorTab.classList.add("active");
+    advisorTab.setAttribute("aria-selected", "true");
+    document.querySelectorAll("#symbolTabs .tab").forEach((b) => {
+      b.classList.remove("active");
+      b.setAttribute("aria-selected", "false");
+    });
+    await syncChartsToAdvisorPick();
+  }
+
+  // Like the symbol tabs, the advisor tab shows the price/RSI/MACD charts
+  // and data table too — for whichever symbol /api/advise is currently
+  // recommending, kept in sync as the advisor's inputs change.
+  async function syncChartsToAdvisorPick() {
+    if (advisorPick) {
+      chartContextNote.textContent = `↑ 以上「建議商品」與下方圖表都對應同一個交易對：${advisorPick.symbol}`;
+      await renderSymbolData(advisorPick.symbol);
+    } else {
+      chartContextNote.textContent = "目前無明確訊號，下方圖表維持顯示先前檢視的交易對。";
+    }
+  }
+
+  advisorTab.addEventListener("click", activateAdvisorTab);
   document.getElementById("reconnectBtn").addEventListener("click", connect);
   ["inputCapital", "inputProfit", "inputHours"].forEach((id) => {
     document.getElementById(id).addEventListener("input", loadAdvice);
