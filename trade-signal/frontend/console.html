@@ -297,7 +297,7 @@
     <div id="symbolTabs" style="display:contents"></div>
     <select class="market-select" id="marketSelect" aria-label="市場別" title="現貨交易對數量少，顯示為分頁；合約交易對可能有三、四百個，改用旁邊的下拉選單挑選">
       <option value="spot">現貨</option>
-      <option value="futures">合約（USDT 永續）</option>
+      <option value="futures" selected>合約（USDT 永續）</option>
     </select>
     <select class="market-select" id="futuresSymbolSelect" aria-label="合約交易對" hidden></select>
   </nav>
@@ -423,7 +423,7 @@
   const SYMBOL_LABEL = { long: "做多", short: "做空", neutral: "觀望" };
   let current = null;
   let currentBars = [];
-  let currentMarket = "spot";
+  let currentMarket = "futures"; // matches main.py's default fetch target
 
   const symbolTabs = document.getElementById("symbolTabs");
   const marketSelect = document.getElementById("marketSelect");
