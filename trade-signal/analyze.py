@@ -1,6 +1,6 @@
 import argparse
 
-from config import DB_PATH, DEFAULT_SYMBOLS
+from config import DATABASE_URL, DEFAULT_SYMBOLS
 from db import get_connection, read_ohlc
 from signals import generate_signal
 
@@ -10,7 +10,7 @@ SIGNAL_LABELS = {"long": "做多", "short": "做空", "neutral": "觀望"}
 def main() -> None:
     parser = argparse.ArgumentParser(description="根據資料庫中的 K 線資料，用 RSI + MACD 判斷多空訊號")
     parser.add_argument("--symbols", nargs="+", default=DEFAULT_SYMBOLS, help="要分析的交易對")
-    parser.add_argument("--db", default=DB_PATH, help="SQLite 資料庫檔案路徑")
+    parser.add_argument("--db", default=DATABASE_URL, help="PostgreSQL 連線字串（預設讀環境變數 DATABASE_URL）")
     args = parser.parse_args()
 
     conn = get_connection(args.db)

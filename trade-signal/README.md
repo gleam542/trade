@@ -1,6 +1,6 @@
 # trade-signal
 
-抓取加密貨幣行情數據並存入 SQLite 資料庫，之後可以基於這些數據做多空分析。
+抓取加密貨幣行情數據並存入 PostgreSQL 資料庫，之後可以基於這些數據做多空分析。
 
 目前階段：只做資料收集（K 線 OHLCV），分析邏輯之後再加。
 
@@ -14,6 +14,8 @@
 pip install -r requirements.txt
 ```
 
+需要一個可連線的 PostgreSQL（本機安裝、`docker compose up db`，或雲端代管的都可以）。連線字串透過環境變數 `DATABASE_URL` 設定（例如 `postgresql://user:password@host:5432/trade_signal`），沒設的話預設連 `postgresql://postgres:postgres@localhost:5432/trade_signal`；每支 CLI 腳本也都有 `--db` 參數可以覆蓋，用途一樣。資料表（`klines`）會在第一次連線時自動建立（`CREATE TABLE IF NOT EXISTS`），不用手動建表。
+
 ## 使用方式
 
 ```bash
@@ -25,9 +27,9 @@ python main.py --symbols BTCUSDT ETHUSDT --interval 1h --limit 500
 - `--all`：改抓幣安**所有**目前在交易中的 USDT 本位永續合約（`fapi.binance.com/fapi/v1/exchangeInfo` 篩出 `contractType=PERPETUAL`、`quoteAsset=USDT`、`status=TRADING`，約三、四百個），忽略 `--symbols`，存入時 `market` 欄位會是 `futures`。因為一次要打幾百次 API，`--all` 模式下每個交易對之間會停頓 0.1 秒才發下一個請求，避免觸發 Binance 限流；一輪跑下來大約數十秒
 - `--interval`：K 線週期（`1m` `5m` `1h` `4h` `1d` 等），預設 `1h`
 - `--limit`：每個交易對抓取的根數（最大 1000），預設 `500`
-- `--db`：SQLite 檔案路徑，預設 `data/trade_signal.db`
+- `--db`：PostgreSQL 連線字串，預設讀環境變數 `DATABASE_URL`（見上方「安裝」）
 
-資料會存到 `klines` 資料表，以 `(market, symbol, open_time)` 為主鍵，重複執行會更新既有資料而不會產生重複列——`market` 讓現貨（`spot`，預設）跟合約（`futures`，`--all` 或未來的 `--symbols ... --market futures`）的同名交易對（例如現貨 BTCUSDT 跟合約 BTCUSDT）分開存放，不會互相覆蓋。舊版（沒有 `market` 欄位）的資料庫第一次被 `get_connection()` 打開時會自動遷移：既有資料一律標記成 `market='spot'`，不會遺失。
+資料會存到 `klines` 資料表，以 `(market, symbol, open_time)` 為主鍵，重複執行會更新既有資料而不會產生重複列（`INSERT ... ON CONFLICT DO UPDATE`）——`market` 讓現貨（`spot`，預設）跟合約（`futures`，`--all` 或未來的 `--symbols ... --market futures`）的同名交易對（例如現貨 BTCUSDT 跟合約 BTCUSDT）分開存放，不會互相覆蓋。
 
 **注意**：`read_ohlc()`／`read_closes()` 的 `market` 參數預設都是 `'spot'`，`analyze.py`／`backtest.py` CLI 版也還是只看現貨（呼叫時沒有指定 `market`）。`api.py` 的 `/api/symbols`／`/api/signal`／`/api/chart`／`/api/backtest` 這幾個單一交易對端點也預設現貨，但接受 `market=futures` 查詢參數可以指定看合約（前端「交易對」分頁旁邊的市場別選單就是用這個切換）；`/api/advise`（策略試算）比較特別，固定會同時掃描現貨＋合約兩個市場，不受 `market` 參數（它本來就不接受這個參數）或前端選單影響。
 
@@ -49,8 +51,10 @@ python main.py --symbols BTCUSDT ETHUSDT --interval 1h --limit 500
 可以搭配 cron 定期執行，例如每 15 分鐘存一次庫：
 
 ```
-*/15 * * * * cd /path/to/trade-signal && python main.py >> fetch.log 2>&1
+*/15 * * * * cd /path/to/trade-signal && DATABASE_URL=postgresql://user:password@host:5432/trade_signal python main.py >> fetch.log 2>&1
 ```
+
+cron 執行環境不會自動帶入你互動式 shell 的環境變數，所以 `DATABASE_URL` 通常要像上面這樣直接寫在 crontab 那一行裡（或寫進一個 cron 會讀到的 env 檔）。
 
 「多久存一次」（cron 排程頻率）跟「每根 K 線代表多長時間」（`--interval`）是兩件獨立的事：上面這行預設還是抓 `--interval 1h` 的 1 小時 K 線，只是每 15 分鐘重新抓一次最新資料——由於 `(symbol, open_time)` 是主鍵，還沒收盤的當前這根 K 線會被同一列覆蓋更新，不會重複。如果要讓存進去的 K 線本身就是 15 分鐘一根，改成 `python main.py --interval 15m` 即可，兩者可以獨立選擇也可以搭配著用。
 
@@ -137,13 +141,17 @@ uvicorn api:app --reload --port 8000
 
 ## Docker
 
-也可以用 Docker 跑 API，不用自己裝 Python 環境。
+也可以用 Docker 跑 API＋資料庫，不用自己裝 Python 或 PostgreSQL。
 
 ```bash
 docker compose up --build
 ```
 
-啟動後 API 就在 `http://localhost:8000`，`data/` 目錄會掛載成 volume，容器重建或重啟資料庫不會不見。之後打開 `frontend/console.html` 一樣把 API 位址指向 `http://localhost:8000` 即可，前端本身不跑在容器裡，還是直接用瀏覽器開檔案。
+`docker-compose.yml` 有兩個服務：
+- `db`：官方 `postgres:16-alpine`，資料存在具名 volume（`db-data`），容器重建或重啟資料不會不見；也對外開了 `5432` port，本機工具（例如 `psql`）要直接連也可以
+- `api`：這個專案的 FastAPI 服務，`DATABASE_URL` 環境變數已經指向 `db` 服務（`postgresql://trade:trade@db:5432/trade_signal`），`depends_on` 設定會等 `db` 通過健康檢查（`pg_isready`）才啟動
+
+啟動後 API 就在 `http://localhost:8000`。之後打開 `frontend/console.html` 一樣把 API 位址指向 `http://localhost:8000` 即可，前端本身不跑在容器裡，還是直接用瀏覽器開檔案。
 
 抓資料／跑分析／回測這些一次性指令用同一個 image 執行即可，例如：
 
@@ -154,7 +162,14 @@ docker compose run --rm api python analyze.py BTCUSDT
 docker compose run --rm api python backtest.py BTCUSDT
 ```
 
-`Dockerfile` 只是標準的 `python:3.12-slim` + `pip install -r requirements.txt` + `uvicorn` 起服務，沒有特殊技巧；`.dockerignore` 排除了 `data/`（用 volume 掛載，不進 image）、`frontend/`（不需要在容器裡）等。
+`Dockerfile` 只是標準的 `python:3.12-slim` + `pip install -r requirements.txt` + `uvicorn` 起服務，沒有特殊技巧；`.dockerignore` 排除了 `.git/`、`frontend/`（不需要在容器裡）等。
+
+只想跑資料庫、Python 直接在本機執行（不透過 Docker 跑 API）也可以，只啟動 `db` 這個服務即可：
+
+```bash
+docker compose up -d db
+DATABASE_URL=postgresql://trade:trade@localhost:5432/trade_signal python main.py
+```
 
 ## 下一步（尚未實作）
 

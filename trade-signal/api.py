@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from backtest import backtest as run_backtest
-from config import DB_PATH, DEFAULT_SYMBOLS
+from config import DATABASE_URL, DEFAULT_SYMBOLS
 from db import get_connection, read_ohlc
 from signals import generate_signal, generate_signal_series
 
@@ -30,15 +30,17 @@ app.add_middleware(
 )
 
 
-def _known_symbols(db_path: str, market: Market = "spot") -> list[str]:
+def _known_symbols(market: Market = "spot") -> list[str]:
     # Scoped to a single market at a time, so a DB that also holds
     # `python main.py --all`'s few-hundred-symbol futures universe doesn't
     # flood an endpoint built around a small spot list unless asked for.
-    conn = get_connection(db_path)
+    conn = get_connection(DATABASE_URL)
     try:
-        rows = conn.execute(
-            "SELECT DISTINCT symbol FROM klines WHERE market = ? ORDER BY symbol", (market,)
-        ).fetchall()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT symbol FROM klines WHERE market = %s ORDER BY symbol", (market,)
+            )
+            rows = cur.fetchall()
     finally:
         conn.close()
     symbols = [r[0] for r in rows]
@@ -47,10 +49,8 @@ def _known_symbols(db_path: str, market: Market = "spot") -> list[str]:
     return symbols
 
 
-def _ohlc_or_404(
-    symbol: str, db_path: str, market: Market = "spot"
-) -> tuple[list[float], list[float], list[float]]:
-    conn = get_connection(db_path)
+def _ohlc_or_404(symbol: str, market: Market = "spot") -> tuple[list[float], list[float], list[float]]:
+    conn = get_connection(DATABASE_URL)
     try:
         highs, lows, closes = read_ohlc(conn, symbol, market=market)
     finally:
@@ -61,13 +61,13 @@ def _ohlc_or_404(
 
 
 @app.get("/api/symbols")
-def list_symbols(market: Market = "spot", db: str = Query(default=DB_PATH)):
-    return {"symbols": _known_symbols(db, market)}
+def list_symbols(market: Market = "spot"):
+    return {"symbols": _known_symbols(market)}
 
 
 @app.get("/api/signal/{symbol}")
-def get_signal(symbol: str, market: Market = "spot", db: str = Query(default=DB_PATH)):
-    highs, lows, closes = _ohlc_or_404(symbol, db, market)
+def get_signal(symbol: str, market: Market = "spot"):
+    highs, lows, closes = _ohlc_or_404(symbol, market)
     return generate_signal(closes, highs=highs, lows=lows)
 
 
@@ -76,22 +76,23 @@ def get_chart(
     symbol: str,
     limit: int = Query(default=300, ge=2, le=2000),
     market: Market = "spot",
-    db: str = Query(default=DB_PATH),
 ):
     """Per-bar OHLC + indicators + the signal that would have fired at that
     bar, using only data up to and including it (no lookahead) — same shape
     the walk-forward backtest consumes, useful for charting."""
-    conn = get_connection(db)
+    conn = get_connection(DATABASE_URL)
     try:
-        rows = conn.execute(
-            """
-            SELECT open_time, open, high, low, close FROM (
-                SELECT open_time, open, high, low, close FROM klines
-                WHERE market = ? AND symbol = ? ORDER BY open_time DESC LIMIT ?
-            ) ORDER BY open_time ASC
-            """,
-            (market, symbol, limit),
-        ).fetchall()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT open_time, open, high, low, close FROM (
+                    SELECT open_time, open, high, low, close FROM klines
+                    WHERE market = %s AND symbol = %s ORDER BY open_time DESC LIMIT %s
+                ) AS recent ORDER BY open_time ASC
+                """,
+                (market, symbol, limit),
+            )
+            rows = cur.fetchall()
     finally:
         conn.close()
     if not rows:
@@ -134,7 +135,6 @@ def get_chart(
 def get_backtest(
     symbol: str,
     market: Market = "spot",
-    db: str = Query(default=DB_PATH),
     min_bars: int = Query(default=60, ge=1),
     rsi_period: int = 14,
     rsi_oversold: float = 30.0,
@@ -152,7 +152,7 @@ def get_backtest(
     fib_lookback: int = 55,
     fib_tolerance_pct: float = 0.05,
 ):
-    highs, lows, closes = _ohlc_or_404(symbol, db, market)
+    highs, lows, closes = _ohlc_or_404(symbol, market)
     return run_backtest(
         closes,
         highs=highs,
@@ -181,7 +181,6 @@ def advise(
     capital: float = Query(gt=0),
     profit_pct: float = Query(gt=0),
     hours: float = Query(gt=0),
-    db: str = Query(default=DB_PATH),
 ):
     """Cross-symbol screener: among tracked symbols with a non-neutral
     signal — spot AND futures both, so a symbol tracked in both markets
@@ -197,8 +196,8 @@ def advise(
 
     candidates = []
     for market in ("spot", "futures"):
-        for symbol in _known_symbols(db, market):
-            conn = get_connection(db)
+        for symbol in _known_symbols(market):
+            conn = get_connection(DATABASE_URL)
             try:
                 highs, lows, closes = read_ohlc(conn, symbol, market=market)
             finally:

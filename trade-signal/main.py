@@ -2,7 +2,7 @@ import argparse
 import sys
 import time
 
-from config import DB_PATH, DEFAULT_INTERVAL, DEFAULT_LIMIT, DEFAULT_SYMBOLS
+from config import DATABASE_URL, DEFAULT_INTERVAL, DEFAULT_LIMIT, DEFAULT_SYMBOLS
 from db import get_connection, upsert_klines
 from fetch import FetchError, fetch_futures_klines, fetch_klines, list_futures_perpetual_symbols
 
@@ -12,7 +12,7 @@ ALL_MODE_REQUEST_DELAY_SECONDS = 0.1
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="抓取加密貨幣行情並存入 SQLite")
+    parser = argparse.ArgumentParser(description="抓取加密貨幣行情並存入 PostgreSQL")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--symbols", nargs="+", default=DEFAULT_SYMBOLS, help="交易對，如 BTCUSDT ETHUSDT")
     group.add_argument(
@@ -22,7 +22,7 @@ def main() -> None:
     )
     parser.add_argument("--interval", default=DEFAULT_INTERVAL, help="K 線週期，如 1h 4h 1d")
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="每個交易對抓取的 K 線根數")
-    parser.add_argument("--db", default=DB_PATH, help="SQLite 資料庫檔案路徑")
+    parser.add_argument("--db", default=DATABASE_URL, help="PostgreSQL 連線字串（預設讀環境變數 DATABASE_URL）")
     args = parser.parse_args()
 
     if args.all:
