@@ -108,6 +108,13 @@
   .tab:hover { background: rgba(var(--accent-rgb), 0.08); color: var(--ink); }
   .tab.active { background: var(--accent); color: #fff; }
   #advisorTab { margin-right: 8px; padding-right: 18px; border-right: 1px solid var(--border); border-radius: 7px; }
+  .market-select {
+    font: inherit; font-family: "IBM Plex Mono", monospace; font-size: 12.5px;
+    padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--ink); cursor: pointer; margin-left: auto;
+  }
+  .market-select + .market-select { margin-left: 6px; }
+  .market-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .local-banner {
@@ -275,12 +282,17 @@
   <nav class="symbol-tabs" role="tablist" aria-label="檢視">
     <button class="tab" id="advisorTab" data-view="advisor" role="tab" aria-selected="false">策略試算</button>
     <div id="symbolTabs" style="display:contents"></div>
+    <select class="market-select" id="marketSelect" aria-label="市場別" title="現貨交易對數量少，顯示為分頁；合約交易對可能有三、四百個，改用旁邊的下拉選單挑選">
+      <option value="spot">現貨</option>
+      <option value="futures">合約（USDT 永續）</option>
+    </select>
+    <select class="market-select" id="futuresSymbolSelect" aria-label="合約交易對" hidden></select>
   </nav>
 
   <section class="panel advisor" id="advisorView" hidden>
     <div class="advisor-head">
       <h2>策略試算</h2>
-      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的交易對，挑出訊號分數最高者作為參考，下方圖表會跟著切換到建議的交易對——也不是保證達成的投資建議。</p>
+      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的<b>現貨</b>交易對，挑出訊號分數最高者作為參考，下方圖表會跟著切換到建議的交易對——也不是保證達成的投資建議。（策略試算固定只看現貨資料，跟上方「市場別」選單選的是現貨還是合約無關）</p>
     </div>
     <div class="advisor-body">
       <div class="advisor-form">
@@ -397,8 +409,11 @@
   const SYMBOL_LABEL = { long: "做多", short: "做空", neutral: "觀望" };
   let current = null;
   let currentBars = [];
+  let currentMarket = "spot";
 
   const symbolTabs = document.getElementById("symbolTabs");
+  const marketSelect = document.getElementById("marketSelect");
+  const futuresSymbolSelect = document.getElementById("futuresSymbolSelect");
   const priceSvg = document.getElementById("priceSvg");
   const rsiSvg = document.getElementById("rsiSvg");
   const kdSvg = document.getElementById("kdSvg");
@@ -738,10 +753,10 @@
   });
 
   // ---------- data loading ----------
-  async function renderSymbolData(symbol) {
+  async function renderSymbolData(symbol, market) {
     current = symbol;
     try {
-      const chart = await apiGet(`/api/chart/${encodeURIComponent(symbol)}?limit=400`);
+      const chart = await apiGet(`/api/chart/${encodeURIComponent(symbol)}?limit=400&market=${market}`);
       const bars = chart.bars.filter((d) => d.rsi !== undefined);
       currentBars = bars;
       if (!bars.length) {
@@ -775,7 +790,7 @@
             <div class="rec-symbol"><span class="eyebrow">建議商品</span><span class="value">—</span></div>
             <div class="rec-direction none">目前無明確訊號</div>
           </div>
-          <p class="rec-scope-note">※ 掃描全部追蹤中的交易對，跟「交易對」分頁選的是哪一個無關</p>
+          <p class="rec-scope-note">※ 掃描全部追蹤中的現貨交易對，跟「交易對」分頁選的是哪一個、市場別選單選的是現貨還是合約都無關</p>
           <div class="pace-note unknown">目前追蹤的交易對 RSI／MACD／布林通道／KD／費波那契回撤皆未觸發多空訊號，建議先觀望。</div>
         `;
         renderCandidatesChart([], adv.requiredHourlyPct);
@@ -808,7 +823,7 @@
             <div class="confidence-track"><div class="confidence-fill" style="width:${pick.confidence}%"></div></div>
           </div>
         </div>
-        <p class="rec-scope-note">※ 掃描全部追蹤中的交易對後的結果——下方圖表已自動切換到 ${pick.symbol}</p>
+        <p class="rec-scope-note">※ 掃描全部追蹤中的現貨交易對後的結果——下方圖表已自動切換到 ${pick.symbol}（現貨）</p>
         <div class="rec-stats">
           <div class="rec-stat"><span class="label">預計獲利金額</span><span class="value tabular">${adv.expectedProfitUsdt.toFixed(2)} USDT</span></div>
           <div class="rec-stat"><span class="label">目標所需每小時報酬率</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
@@ -888,25 +903,51 @@
     });
   }
 
-  async function connect() {
-    clearError();
-    try {
-      const { symbols } = await apiGet("/api/symbols");
-      connDot.className = "conn-dot ok";
+  // 現貨交易對通常只有個位數，適合用分頁；合約可能有三、四百個，分頁會爆版面，
+  // 改用下拉選單。兩種情境共用同一顆 activateSymbolTab()，差別只在「目前的清單
+  // 用什麼元件呈現」。
+  async function loadSymbolList() {
+    const { symbols } = await apiGet(`/api/symbols?market=${currentMarket}`);
+    if (currentMarket === "spot") {
+      futuresSymbolSelect.hidden = true;
+      futuresSymbolSelect.innerHTML = "";
       symbolTabs.innerHTML = symbols.map((s, idx) =>
         `<button class="tab${idx === 0 ? " active" : ""}" data-symbol="${s}" role="tab" aria-selected="${idx === 0}">${s}</button>`
       ).join("");
       symbolTabs.querySelectorAll(".tab").forEach((btn) => {
         btn.addEventListener("click", () => activateSymbolTab(btn.dataset.symbol));
       });
-      if (symbols.length) {
-        await activateSymbolTab(symbols[0]);
-        await loadAdvice();
-      }
+    } else {
+      symbolTabs.innerHTML = "";
+      futuresSymbolSelect.hidden = false;
+      futuresSymbolSelect.innerHTML = symbols.map((s) => `<option value="${s}">${s}</option>`).join("");
+    }
+    if (symbols.length) {
+      await activateSymbolTab(symbols[0]);
+    } else {
+      currentBars = [];
+      summaryStrip.innerHTML = `<p class="placeholder-text">目前資料庫裡沒有 ${currentMarket === "spot" ? "現貨" : "合約"} 資料。</p>`;
+    }
+  }
+
+  async function connect() {
+    clearError();
+    try {
+      await loadSymbolList();
+      connDot.className = "conn-dot ok";
+      await loadAdvice();
     } catch (e) {
       showError(e.message);
     }
   }
+
+  marketSelect.addEventListener("change", () => {
+    currentMarket = marketSelect.value;
+    loadSymbolList().catch((e) => showError(e.message));
+  });
+  futuresSymbolSelect.addEventListener("change", () => {
+    activateSymbolTab(futuresSymbolSelect.value).catch((e) => showError(e.message));
+  });
 
   const advisorView = document.getElementById("advisorView");
   const advisorTab = document.getElementById("advisorTab");
@@ -922,8 +963,9 @@
       b.classList.toggle("active", active);
       b.setAttribute("aria-selected", String(active));
     });
+    if (currentMarket === "futures") futuresSymbolSelect.value = symbol;
     chartContextNote.textContent = "";
-    await renderSymbolData(symbol);
+    await renderSymbolData(symbol, currentMarket);
   }
 
   async function activateAdvisorTab() {
@@ -942,8 +984,9 @@
   // recommending, kept in sync as the advisor's inputs change.
   async function syncChartsToAdvisorPick() {
     if (advisorPick) {
-      chartContextNote.textContent = `↑ 以上「建議商品」與下方圖表都對應同一個交易對：${advisorPick.symbol}`;
-      await renderSymbolData(advisorPick.symbol);
+      chartContextNote.textContent = `↑ 以上「建議商品」與下方圖表都對應同一個交易對：${advisorPick.symbol}（現貨）`;
+      // 策略試算固定只看現貨，跟 currentMarket（畫面上選的市場別）無關。
+      await renderSymbolData(advisorPick.symbol, "spot");
     } else {
       chartContextNote.textContent = "目前無明確訊號，下方圖表維持顯示先前檢視的交易對。";
     }

@@ -111,15 +111,17 @@ uvicorn api:app --reload --port 8000
 ```
 
 端點：
-- `GET /api/symbols` — 資料庫裡有資料的交易對清單
-- `GET /api/signal/{symbol}` — 該交易對目前的 `generate_signal()` 結果
-- `GET /api/chart/{symbol}?limit=300` — 逐根 K 線的 OHLC + 指標（含 `kdK`/`kdD`/`fibLevel`/`fibSwingHigh`/`fibSwingLow`/`fibUptrend`）+ 當下（不含未來）訊號 + 止損價位，給畫圖用
-- `GET /api/backtest/{symbol}?...` — 呼叫 `backtest()`，查詢參數對應 `--rsi-period`、`--kd-k-period`、`--fib-lookback` 等 CLI 參數
-- `GET /api/advise?capital=&profit_pct=&hours=` — 跨交易對掃描：本金、目標盈利 %、預計花費小時數，換算成每小時所需報酬率（`requiredHourlyPct`），排序時先分兩層——「歷史上該方向的平均每小時報酬（來自 `backtest()` 的 `by_direction` 細分）有沒有達到這個目標」排前面，同樣有達到／同樣沒達到的再比訊號分數的信心度（`|score| / 5`，五項指標同向觸發的比例），最後比勝率。也就是說輸入的本金／目標盈利／小時數改變時，`requiredHourlyPct` 跟著變，兩層排序的結果也可能跟著換人——不是固定訊號分數排序、只是換個數字顯示而已。附上該方向的歷史勝率／平均報酬、以及 ATR 止損價位做參考
+- `GET /api/symbols?market=spot|futures` — 資料庫裡有資料的交易對清單，`market` 預設 `spot`
+- `GET /api/signal/{symbol}?market=` — 該交易對目前的 `generate_signal()` 結果
+- `GET /api/chart/{symbol}?limit=300&market=` — 逐根 K 線的 OHLC + 指標（含 `kdK`/`kdD`/`fibLevel`/`fibSwingHigh`/`fibSwingLow`/`fibUptrend`）+ 當下（不含未來）訊號 + 止損價位，給畫圖用
+- `GET /api/backtest/{symbol}?market=...` — 呼叫 `backtest()`，查詢參數對應 `--rsi-period`、`--kd-k-period`、`--fib-lookback` 等 CLI 參數
+- `GET /api/advise?capital=&profit_pct=&hours=` — 跨交易對掃描：本金、目標盈利 %、預計花費小時數，換算成每小時所需報酬率（`requiredHourlyPct`），排序時先分兩層——「歷史上該方向的平均每小時報酬（來自 `backtest()` 的 `by_direction` 細分）有沒有達到這個目標」排前面，同樣有達到／同樣沒達到的再比訊號分數的信心度（`|score| / 5`，五項指標同向觸發的比例），最後比勝率。也就是說輸入的本金／目標盈利／小時數改變時，`requiredHourlyPct` 跟著變，兩層排序的結果也可能跟著換人——不是固定訊號分數排序、只是換個數字顯示而已。附上該方向的歷史勝率／平均報酬、以及 ATR 止損價位做參考。**固定只掃描 `market=spot`**，不接受 `market` 參數——這是刻意的，避免 `--all` 抓回來的三、四百個合約交易對一次全部跑進回測（見上面「資料來源」一節）
 
 啟動後可以打開 `http://localhost:8000/docs` 看自動產生的 API 文件。CORS 預設全開（`allow_origins=["*"]`），方便本機開發時用不同 port 或直接開檔案存取；正式對外提供服務前要收窄。
 
 打開前端：先確定 API 正在跑（見上），再直接用瀏覽器開啟 `frontend/console.html`（或用任何靜態伺服器），畫面上方的欄位可以改 API 位址（預設 `http://localhost:8000`）。這個檔案會即時 fetch 這幾個端點，跟前面章節的腳本是同一套邏輯、同一個資料庫，不是另外寫死的展示資料。
+
+交易對分頁旁邊有個「市場別」下拉選單（現貨／合約）。現貨交易對數量少，維持原本的分頁介面；切到合約會改成另一個下拉選單挑交易對——因為 `python main.py --all` 抓回來的合約可能有三、四百個，全部做成分頁會直接把版面撐爆。這個選單只影響「交易對」分頁跟下面的圖表要顯示現貨還是合約資料；**策略試算固定只看現貨**，不受這個選單影響（見上面 `/api/advise` 的說明）。
 
 畫面上有兩塊容易搞混、但範圍不同的區塊：
 - **最新判斷**（摘要條，在交易對分頁下方）：只反映你**目前選取的分頁**（例如點 BTCUSDT 就顯示 BTCUSDT 自己的 `generate_signal()` 結果，含止損價位），切換分頁就會跟著換。

@@ -9,6 +9,8 @@ port during development — lock it down before exposing this beyond your own
 machine.
 """
 
+from typing import Literal
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,6 +18,8 @@ from backtest import backtest as run_backtest
 from config import DB_PATH, DEFAULT_SYMBOLS
 from db import get_connection, read_ohlc
 from signals import generate_signal
+
+Market = Literal["spot", "futures"]
 
 app = FastAPI(title="trade-signal API")
 app.add_middleware(
@@ -26,44 +30,54 @@ app.add_middleware(
 )
 
 
-def _known_symbols(db_path: str) -> list[str]:
-    # Scoped to spot data only, so a DB that also holds `python main.py --all`'s
-    # futures universe doesn't flood every endpoint (and the frontend's tab
-    # list) with a few hundred extra symbols nothing else here is built for.
+def _known_symbols(db_path: str, market: Market = "spot") -> list[str]:
+    # Scoped to a single market at a time, so a DB that also holds
+    # `python main.py --all`'s few-hundred-symbol futures universe doesn't
+    # flood an endpoint built around a small spot list unless asked for.
     conn = get_connection(db_path)
     try:
         rows = conn.execute(
-            "SELECT DISTINCT symbol FROM klines WHERE market = 'spot' ORDER BY symbol"
+            "SELECT DISTINCT symbol FROM klines WHERE market = ? ORDER BY symbol", (market,)
         ).fetchall()
     finally:
         conn.close()
-    return [r[0] for r in rows] or list(DEFAULT_SYMBOLS)
+    symbols = [r[0] for r in rows]
+    if not symbols and market == "spot":
+        symbols = list(DEFAULT_SYMBOLS)
+    return symbols
 
 
-def _ohlc_or_404(symbol: str, db_path: str) -> tuple[list[float], list[float], list[float]]:
+def _ohlc_or_404(
+    symbol: str, db_path: str, market: Market = "spot"
+) -> tuple[list[float], list[float], list[float]]:
     conn = get_connection(db_path)
     try:
-        highs, lows, closes = read_ohlc(conn, symbol)
+        highs, lows, closes = read_ohlc(conn, symbol, market=market)
     finally:
         conn.close()
     if not closes:
-        raise HTTPException(status_code=404, detail=f"no stored klines for {symbol}")
+        raise HTTPException(status_code=404, detail=f"no stored {market} klines for {symbol}")
     return highs, lows, closes
 
 
 @app.get("/api/symbols")
-def list_symbols(db: str = Query(default=DB_PATH)):
-    return {"symbols": _known_symbols(db)}
+def list_symbols(market: Market = "spot", db: str = Query(default=DB_PATH)):
+    return {"symbols": _known_symbols(db, market)}
 
 
 @app.get("/api/signal/{symbol}")
-def get_signal(symbol: str, db: str = Query(default=DB_PATH)):
-    highs, lows, closes = _ohlc_or_404(symbol, db)
+def get_signal(symbol: str, market: Market = "spot", db: str = Query(default=DB_PATH)):
+    highs, lows, closes = _ohlc_or_404(symbol, db, market)
     return generate_signal(closes, highs=highs, lows=lows)
 
 
 @app.get("/api/chart/{symbol}")
-def get_chart(symbol: str, limit: int = Query(default=300, ge=2, le=2000), db: str = Query(default=DB_PATH)):
+def get_chart(
+    symbol: str,
+    limit: int = Query(default=300, ge=2, le=2000),
+    market: Market = "spot",
+    db: str = Query(default=DB_PATH),
+):
     """Per-bar OHLC + indicators + the signal that would have fired at that
     bar, using only data up to and including it (no lookahead) — same shape
     the walk-forward backtest consumes, useful for charting."""
@@ -73,15 +87,15 @@ def get_chart(symbol: str, limit: int = Query(default=300, ge=2, le=2000), db: s
             """
             SELECT open_time, open, high, low, close FROM (
                 SELECT open_time, open, high, low, close FROM klines
-                WHERE symbol = ? ORDER BY open_time DESC LIMIT ?
+                WHERE market = ? AND symbol = ? ORDER BY open_time DESC LIMIT ?
             ) ORDER BY open_time ASC
             """,
-            (symbol, limit),
+            (market, symbol, limit),
         ).fetchall()
     finally:
         conn.close()
     if not rows:
-        raise HTTPException(status_code=404, detail=f"no stored klines for {symbol}")
+        raise HTTPException(status_code=404, detail=f"no stored {market} klines for {symbol}")
 
     highs = [row[2] for row in rows]
     lows = [row[3] for row in rows]
@@ -116,6 +130,7 @@ def get_chart(symbol: str, limit: int = Query(default=300, ge=2, le=2000), db: s
 @app.get("/api/backtest/{symbol}")
 def get_backtest(
     symbol: str,
+    market: Market = "spot",
     db: str = Query(default=DB_PATH),
     min_bars: int = Query(default=60, ge=1),
     rsi_period: int = 14,
@@ -134,7 +149,7 @@ def get_backtest(
     fib_lookback: int = 55,
     fib_tolerance_pct: float = 0.05,
 ):
-    highs, lows, closes = _ohlc_or_404(symbol, db)
+    highs, lows, closes = _ohlc_or_404(symbol, db, market)
     return run_backtest(
         closes,
         highs=highs,
