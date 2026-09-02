@@ -48,6 +48,8 @@ python main.py --symbols BTCUSDT ETHUSDT --interval 1h --limit 500
 
 ## 排程抓取
 
+用 Docker 的話不用自己設 cron——`docker-compose.yml` 內建一個 `scheduler` 服務，`docker compose up` 就會自動每 15 分鐘跑一次 `python main.py`（見下方「Docker」一節）。以下是不用 Docker、自己在主機上跑時的作法。
+
 可以搭配 cron 定期執行，例如每 15 分鐘存一次庫：
 
 ```
@@ -147,11 +149,14 @@ uvicorn api:app --reload --port 8000
 docker compose up --build
 ```
 
-`docker-compose.yml` 有兩個服務：
+`docker-compose.yml` 有三個服務：
 - `db`：官方 `postgres:16-alpine`，資料存在具名 volume（`db-data`），容器重建或重啟資料不會不見；也對外開了 `5432` port，本機工具（例如 `psql`）要直接連也可以
 - `api`：這個專案的 FastAPI 服務，`DATABASE_URL` 環境變數已經指向 `db` 服務（`postgresql://trade:trade@db:5432/trade_signal`），`depends_on` 設定會等 `db` 通過健康檢查（`pg_isready`）才啟動
+- `scheduler`：跟 `api` 同一個 image，不開 port，啟動後就跑 `while true; do python main.py; sleep 900; done`——等同內建每 15 分鐘一次的 cron，不用另外在主機上設定排程。單次 `main.py` 失敗（連不上 Binance、限流等）不會讓這個迴圈停下來，下一輪還是會照跑；只抓現貨預設的 5 個交易對，跟 README 前面「排程抓取」章節的 cron 範例做一樣的事。想抓別的交易對或改用 `--all`，直接編輯 `docker-compose.yml` 裡 `scheduler` 的 `command` 即可
 
 啟動後 API 就在 `http://localhost:8000`。之後打開 `frontend/console.html` 一樣把 API 位址指向 `http://localhost:8000` 即可，前端本身不跑在容器裡，還是直接用瀏覽器開檔案。
+
+不想要自動排程抓取（例如只是想手動測試），可以只啟動 `db` 跟 `api`：`docker compose up --build db api`。
 
 抓資料／跑分析／回測這些一次性指令用同一個 image 執行即可，例如：
 
