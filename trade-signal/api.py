@@ -97,6 +97,12 @@ def get_chart(symbol: str, limit: int = Query(default=300, ge=2, le=2000), db: s
                 reason=result["reason"],
                 atr=result["atr"],
                 stopLoss=result["stop_loss"],
+                kdK=result["kd_k"],
+                kdD=result["kd_d"],
+                fibSwingHigh=result["fib_swing_high"],
+                fibSwingLow=result["fib_swing_low"],
+                fibLevel=result["fib_level"],
+                fibUptrend=result["fib_uptrend"],
             )
         bars.append(entry)
     return {"symbol": symbol, "bars": bars}
@@ -115,10 +121,19 @@ def get_backtest(
     macd_signal: int = 9,
     bb_period: int = 20,
     bb_std: float = 2.0,
+    kd_k_period: int = 14,
+    kd_smooth_k: int = 3,
+    kd_d_period: int = 3,
+    kd_oversold: float = 20.0,
+    kd_overbought: float = 80.0,
+    fib_lookback: int = 55,
+    fib_tolerance_pct: float = 0.05,
 ):
-    _, _, closes = _ohlc_or_404(symbol, db)
+    highs, lows, closes = _ohlc_or_404(symbol, db)
     return run_backtest(
         closes,
+        highs=highs,
+        lows=lows,
         min_bars=min_bars,
         rsi_period=rsi_period,
         rsi_oversold=rsi_oversold,
@@ -128,6 +143,13 @@ def get_backtest(
         macd_signal=macd_signal,
         bb_period=bb_period,
         bb_std=bb_std,
+        kd_k_period=kd_k_period,
+        kd_smooth_k=kd_smooth_k,
+        kd_d_period=kd_d_period,
+        kd_oversold=kd_oversold,
+        kd_overbought=kd_overbought,
+        fib_lookback=fib_lookback,
+        fib_tolerance_pct=fib_tolerance_pct,
     )
 
 
@@ -141,7 +163,7 @@ def advise(
     """Cross-symbol screener: among tracked symbols with a non-neutral
     signal, rank candidates that historically clear the requested pace
     (from backtest()'s by_direction breakdown) ahead of ones that don't,
-    then by confidence (|score| / 3) within each tier — so the pick
+    then by confidence (|score| / 5) within each tier — so the pick
     actually responds to capital/profit_pct/hours instead of only
     annotating a fixed, target-independent ranking. Still not a
     guarantee: it's "which of these signals historically kept up with
@@ -162,7 +184,7 @@ def advise(
         if latest["signal"] not in ("long", "short"):
             continue
 
-        bt = run_backtest(closes)
+        bt = run_backtest(closes, highs=highs, lows=lows)
         direction_stats = bt["by_direction"][latest["signal"]]
 
         candidates.append(
@@ -170,7 +192,7 @@ def advise(
                 "symbol": symbol,
                 "direction": latest["signal"],
                 "score": latest["score"],
-                "confidence": abs(latest["score"]) / 3 * 100,
+                "confidence": abs(latest["score"]) / 5 * 100,
                 "reason": latest["reason"],
                 "atr": latest["atr"],
                 "stopLoss": latest["stop_loss"],

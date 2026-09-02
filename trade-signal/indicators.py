@@ -104,6 +104,73 @@ def atr(
     return atr_values
 
 
+def stochastic_kd(
+    highs: list[float],
+    lows: list[float],
+    closes: list[float],
+    k_period: int = 14,
+    smooth_k: int = 3,
+    d_period: int = 3,
+) -> tuple[list[float], list[float]]:
+    """Stochastic oscillator (%K, %D), both 0-100, aligned to the same index range.
+
+    Raw %K = (close - lowest low over k_period) / (highest high - lowest low) * 100.
+    The returned %K is a `smooth_k`-period SMA of raw %K (the commonly quoted
+    "slow %K"); %D is a `d_period`-period SMA of that %K. Returns two empty
+    lists if there isn't enough data. A zero-range window (highest == lowest)
+    reports 50.0 (neither overbought nor oversold) instead of dividing by zero.
+    """
+    if len(closes) < k_period + smooth_k + d_period - 2:
+        return [], []
+
+    raw_k = []
+    for i in range(k_period - 1, len(closes)):
+        window_high = max(highs[i - k_period + 1: i + 1])
+        window_low = min(lows[i - k_period + 1: i + 1])
+        span = window_high - window_low
+        raw_k.append(50.0 if span == 0 else (closes[i] - window_low) / span * 100)
+
+    def _sma(values: list[float], period: int) -> list[float]:
+        return [sum(values[i - period + 1: i + 1]) / period for i in range(period - 1, len(values))]
+
+    k_values = _sma(raw_k, smooth_k)
+    d_values = _sma(k_values, d_period)
+    k_aligned = k_values[d_period - 1:]
+
+    return k_aligned, d_values
+
+
+def fibonacci_retracement(
+    highs: list[float],
+    lows: list[float],
+    lookback: int = 55,
+) -> tuple[float, float, bool] | None:
+    """Find the swing high/low over the last `lookback` bars and report
+    which came first — the basis for a Fibonacci retracement read.
+
+    Returns (swing_high, swing_low, uptrend): `uptrend` is True when the
+    swing low occurred before the swing high (the most recent leg ran up,
+    so a pullback toward the low retraces *into* an uptrend), False when
+    the high came first (the leg ran down). Returns None if there isn't
+    enough data, or the window is flat (swing_high <= swing_low).
+    """
+    if len(highs) < lookback or len(lows) < lookback:
+        return None
+
+    window_highs = highs[-lookback:]
+    window_lows = lows[-lookback:]
+
+    idx_high = max(range(lookback), key=lambda i: window_highs[i])
+    idx_low = min(range(lookback), key=lambda i: window_lows[i])
+
+    swing_high = window_highs[idx_high]
+    swing_low = window_lows[idx_low]
+    if swing_high <= swing_low:
+        return None
+
+    return swing_high, swing_low, idx_low < idx_high
+
+
 def bollinger_bands(
     closes: list[float],
     period: int = 20,

@@ -312,7 +312,7 @@
     <div class="chart-wrap" id="candidatesWrap">
       <svg id="candidatesSvg" viewBox="0 0 960 40" preserveAspectRatio="none" role="img" aria-label="各交易對歷史每小時報酬率與目標每小時報酬率比較圖"></svg>
     </div>
-    <p class="advisor-disclaimer">信心率＝目前 RSI／MACD／布林通道三項指標中同向觸發的比例；歷史每小時報酬率來自 <span class="num">backtest.py</span> 對你資料庫裡實際儲存資料的回測，並非保證。本區塊不構成投資建議。</p>
+    <p class="advisor-disclaimer">信心率＝目前 RSI／MACD／布林通道／KD／費波那契回撤五項指標中同向觸發的比例；歷史每小時報酬率來自 <span class="num">backtest.py</span> 對你資料庫裡實際儲存資料的回測，並非保證。本區塊不構成投資建議。</p>
   </section>
 
   <p class="rec-scope-note" id="chartContextNote"></p>
@@ -324,6 +324,7 @@
       <ul class="legend">
         <li><span class="key" style="background:var(--series-price)"></span>收盤價</li>
         <li><span class="key area" style="background:var(--series-band)"></span>布林通道 (20, 2σ)</li>
+        <li><span class="key" style="background:var(--series-rsi)"></span>費波 61.8% 回撤位</li>
         <li><span class="key tri-up"></span>做多訊號</li>
         <li><span class="key tri-down"></span>做空訊號</li>
       </ul>
@@ -344,6 +345,19 @@
       </ul>
     </div>
     <div class="chart-wrap" id="rsiWrap"><svg id="rsiSvg" viewBox="0 0 960 140" preserveAspectRatio="none" role="img" aria-label="RSI 指標走勢圖"></svg></div>
+  </section>
+
+  <section class="panel" id="kdPanel">
+    <div class="panel-head">
+      <h2>KD (14, 3, 3)</h2>
+      <ul class="legend">
+        <li><span class="key" style="background:var(--series-price)"></span>%K</li>
+        <li><span class="key" style="background:var(--series-band)"></span>%D</li>
+        <li style="color:var(--critical)">80 超買</li>
+        <li style="color:var(--good)">20 超賣</li>
+      </ul>
+    </div>
+    <div class="chart-wrap" id="kdWrap"><svg id="kdSvg" viewBox="0 0 960 140" preserveAspectRatio="none" role="img" aria-label="KD 指標走勢圖"></svg></div>
   </section>
 
   <section class="panel" id="macdPanel">
@@ -367,7 +381,7 @@
     <button class="table-toggle" id="tableToggle" aria-expanded="false" aria-controls="tableWrap">顯示原始資料表 ▾</button>
     <div class="table-wrap" id="tableWrap" hidden>
       <table>
-        <thead><tr><th>時間</th><th>收盤</th><th>RSI</th><th>MACD</th><th>訊號線</th><th>布林上軌</th><th>布林下軌</th><th>分數</th><th>判斷</th><th>止損價位</th></tr></thead>
+        <thead><tr><th>時間</th><th>收盤</th><th>RSI</th><th>MACD</th><th>訊號線</th><th>布林上軌</th><th>布林下軌</th><th>KD %K</th><th>KD %D</th><th>分數</th><th>判斷</th><th>止損價位</th></tr></thead>
         <tbody id="tableBody"></tbody>
       </table>
     </div>
@@ -387,6 +401,7 @@
   const symbolTabs = document.getElementById("symbolTabs");
   const priceSvg = document.getElementById("priceSvg");
   const rsiSvg = document.getElementById("rsiSvg");
+  const kdSvg = document.getElementById("kdSvg");
   const macdSvg = document.getElementById("macdSvg");
   const tooltip = document.getElementById("tooltip");
   const priceWrap = document.getElementById("priceWrap");
@@ -477,6 +492,10 @@
       min = Math.min(min, last.stopLoss);
       max = Math.max(max, last.stopLoss);
     }
+    if (last.fibLevel != null) {
+      min = Math.min(min, last.fibLevel);
+      max = Math.max(max, last.fibLevel);
+    }
     const x = makeXScale(n, W, padL, padR);
     const y = makeYScale(min, max, H, padT, padB);
 
@@ -526,6 +545,14 @@
       priceSvg.appendChild(slLabel);
     }
 
+    if (last.fibLevel != null) {
+      const fibY = y(last.fibLevel);
+      priceSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: fibY.toFixed(2), y2: fibY.toFixed(2), stroke: "var(--series-rsi)", "stroke-width": 1.5, "stroke-dasharray": "2 4", opacity: 0.8 }));
+      const fibLabel = el("text", { x: W - padR - 4, y: (fibY - 4).toFixed(2), "font-size": 9, "text-anchor": "end", style: "fill:var(--series-rsi)" });
+      fibLabel.textContent = `費波 61.8% ${fmtPrice(last.fibLevel)}`;
+      priceSvg.appendChild(fibLabel);
+    }
+
     const cross = el("line", { class: "crosshair-line", id: "priceCross", x1: 0, x2: 0, y1: padT, y2: H - padB });
     priceSvg.appendChild(cross);
     priceSvg.appendChild(el("circle", { class: "crosshair-dot", id: "priceDot", r: 4, fill: "var(--series-price)", stroke: "var(--surface)", "stroke-width": 2 }));
@@ -552,6 +579,29 @@
     rsiSvg.appendChild(cross);
     rsiSvg.appendChild(el("circle", { class: "crosshair-dot", id: "rsiDot", r: 4, fill: "var(--series-rsi)", stroke: "var(--surface)", "stroke-width": 2 }));
     rsiSvg._scales = { x, y, n, padT, padB, H };
+  }
+
+  function renderKd(data) {
+    kdSvg.textContent = "";
+    const W = 960, H = 140, padL = 4, padR = 4, padT = 12, padB = 18;
+    const n = data.length;
+    const x = makeXScale(n, W, padL, padR);
+    const y = makeYScale(0, 100, H, padT, padB);
+    kdSvg.appendChild(el("rect", { x: padL, y: y(100).toFixed(2), width: W - padL - padR, height: (y(80) - y(100)).toFixed(2), fill: "var(--critical)", opacity: 0.06 }));
+    kdSvg.appendChild(el("rect", { x: padL, y: y(20).toFixed(2), width: W - padL - padR, height: (y(0) - y(20)).toFixed(2), fill: "var(--good)", opacity: 0.06 }));
+    [20, 50, 80].forEach((v) => {
+      const yy = y(v);
+      kdSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: yy.toFixed(2), y2: yy.toFixed(2), stroke: v === 50 ? "var(--baseline)" : "var(--grid)", "stroke-width": 1, "stroke-dasharray": v === 50 ? "" : "3 3" }));
+      const t = el("text", { x: W - padR - 4, y: (yy - 4).toFixed(2), "font-size": 9, "text-anchor": "end" });
+      t.textContent = v;
+      kdSvg.appendChild(t);
+    });
+    kdSvg.appendChild(el("path", { d: pathFor(data.map((d) => d.kdD), x, y), fill: "none", stroke: "var(--series-band)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    kdSvg.appendChild(el("path", { d: pathFor(data.map((d) => d.kdK), x, y), fill: "none", stroke: "var(--series-price)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    const cross = el("line", { class: "crosshair-line", id: "kdCross", x1: 0, x2: 0, y1: padT, y2: H - padB });
+    kdSvg.appendChild(cross);
+    kdSvg.appendChild(el("circle", { class: "crosshair-dot", id: "kdDot", r: 4, fill: "var(--series-price)", stroke: "var(--surface)", "stroke-width": 2 }));
+    kdSvg._scales = { x, y, n, padT, padB, H };
   }
 
   function renderMacd(data) {
@@ -587,6 +637,9 @@
     const stopLossTile = last.stopLoss != null
       ? `<div class="stat"><span class="label">止損價位（2×ATR）</span><span class="value tabular">${fmtPrice(last.stopLoss)}</span></div>`
       : "";
+    const kdTile = last.kdK != null
+      ? `<div class="stat"><span class="label">KD %K / %D</span><span class="value tabular">${last.kdK.toFixed(1)} / ${last.kdD.toFixed(1)}</span></div>`
+      : "";
     summaryStrip.innerHTML = `
       <div class="signal-pill" data-state="${state}">
         <span class="eyebrow">最新判斷</span>
@@ -595,6 +648,7 @@
       <div class="stat-tiles">
         <div class="stat"><span class="label">最新收盤</span><span class="value tabular">${fmtPrice(last.c)}</span></div>
         <div class="stat"><span class="label">RSI</span><span class="value tabular">${last.rsi.toFixed(1)}</span></div>
+        ${kdTile}
         <div class="stat"><span class="label">總分</span><span class="value tabular">${last.score > 0 ? "+" + last.score : last.score}</span></div>
         ${stopLossTile}
       </div>
@@ -609,6 +663,7 @@
         <td>${fmtDate(d.t)}</td><td>${fmtPrice(d.c)}</td><td>${d.rsi.toFixed(1)}</td>
         <td>${d.macd.toFixed(2)}</td><td>${d.macdSignal.toFixed(2)}</td>
         <td>${fmtPrice(d.bbUpper)}</td><td>${fmtPrice(d.bbLower)}</td>
+        <td>${d.kdK != null ? d.kdK.toFixed(1) : "—"}</td><td>${d.kdD != null ? d.kdD.toFixed(1) : "—"}</td>
         <td>${d.score > 0 ? "+" + d.score : d.score}</td><td class="${sigClass}">${SYMBOL_LABEL[d.signal]}</td>
         <td>${d.stopLoss != null ? fmtPrice(d.stopLoss) : "—"}</td>
       </tr>`;
@@ -618,7 +673,7 @@
   function showCrosshair(i) {
     if (!currentBars.length || i < 0 || i >= currentBars.length) return;
     const d = currentBars[i];
-    [priceSvg, rsiSvg, macdSvg].forEach((svg) => {
+    [priceSvg, rsiSvg, kdSvg, macdSvg].forEach((svg) => {
       const s = svg._scales;
       if (!s) return;
       const xx = s.x(i).toFixed(2);
@@ -631,6 +686,11 @@
     document.getElementById("rsiDot").setAttribute("cx", rsiSvg._scales.x(i).toFixed(2));
     document.getElementById("rsiDot").setAttribute("cy", rsiSvg._scales.y(d.rsi).toFixed(2));
     document.getElementById("rsiDot").style.opacity = 1;
+    if (d.kdK != null) {
+      document.getElementById("kdDot").setAttribute("cx", kdSvg._scales.x(i).toFixed(2));
+      document.getElementById("kdDot").setAttribute("cy", kdSvg._scales.y(d.kdK).toFixed(2));
+      document.getElementById("kdDot").style.opacity = 1;
+    }
     document.getElementById("macdDot").setAttribute("cx", macdSvg._scales.x(i).toFixed(2));
     document.getElementById("macdDot").setAttribute("cy", macdSvg._scales.y(d.macd).toFixed(2));
     document.getElementById("macdDot").style.opacity = 1;
@@ -643,6 +703,8 @@
       <div class="t-row"><span class="t-key"><span class="stroke" style="background:var(--series-price)"></span>MACD</span><span class="t-val">${d.macd.toFixed(2)}</span></div>
       <div class="t-row"><span class="t-key"><span class="stroke" style="background:var(--series-band)"></span>訊號線</span><span class="t-val">${d.macdSignal.toFixed(2)}</span></div>
       <div class="t-row"><span class="t-key">布林上/下軌</span><span class="t-val">${fmtPrice(d.bbUpper)} / ${fmtPrice(d.bbLower)}</span></div>
+      ${d.kdK != null ? `<div class="t-row"><span class="t-key">KD %K/%D</span><span class="t-val">${d.kdK.toFixed(1)} / ${d.kdD.toFixed(1)}</span></div>` : ""}
+      ${d.fibLevel != null ? `<div class="t-row"><span class="t-key">費波 61.8%</span><span class="t-val">${fmtPrice(d.fibLevel)}</span></div>` : ""}
       ${d.stopLoss != null ? `<div class="t-row"><span class="t-key">止損價位</span><span class="t-val">${fmtPrice(d.stopLoss)}</span></div>` : ""}
       ${badge}
     `;
@@ -663,7 +725,7 @@
     const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
     return Math.round(frac * (currentBars.length - 1));
   }
-  [priceWrap, document.getElementById("rsiWrap"), document.getElementById("macdWrap")].forEach((wrap) => {
+  [priceWrap, document.getElementById("rsiWrap"), document.getElementById("kdWrap"), document.getElementById("macdWrap")].forEach((wrap) => {
     wrap.addEventListener("pointermove", (e) => showCrosshair(indexFromClientX(e.clientX)));
     wrap.addEventListener("pointerleave", hideCrosshair);
   });
@@ -686,7 +748,7 @@
         summaryStrip.innerHTML = `<p class="placeholder-text">${symbol} 資料不足以計算指標（暖機期還沒過）。</p>`;
         return;
       }
-      renderPrice(bars); renderRsi(bars); renderMacd(bars); renderSummary(bars); renderTable(bars);
+      renderPrice(bars); renderRsi(bars); renderKd(bars); renderMacd(bars); renderSummary(bars); renderTable(bars);
       scrubber.max = String(bars.length - 1);
       scrubber.value = String(bars.length - 1);
       hideCrosshair();
@@ -714,7 +776,7 @@
             <div class="rec-direction none">目前無明確訊號</div>
           </div>
           <p class="rec-scope-note">※ 掃描全部追蹤中的交易對，跟「交易對」分頁選的是哪一個無關</p>
-          <div class="pace-note unknown">目前追蹤的交易對 RSI／MACD／布林通道皆未觸發多空訊號，建議先觀望。</div>
+          <div class="pace-note unknown">目前追蹤的交易對 RSI／MACD／布林通道／KD／費波那契回撤皆未觸發多空訊號，建議先觀望。</div>
         `;
         renderCandidatesChart([], adv.requiredHourlyPct);
         if (!advisorView.hidden) await syncChartsToAdvisorPick();
