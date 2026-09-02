@@ -42,11 +42,13 @@ python main.py --symbols BTCUSDT ETHUSDT --interval 1h --limit 500
 
 ## 排程抓取
 
-可以搭配 cron 定期執行，例如每小時抓一次：
+可以搭配 cron 定期執行，例如每 15 分鐘存一次庫：
 
 ```
-0 * * * * cd /path/to/trade-signal && python main.py
+*/15 * * * * cd /path/to/trade-signal && python main.py >> fetch.log 2>&1
 ```
+
+「多久存一次」（cron 排程頻率）跟「每根 K 線代表多長時間」（`--interval`）是兩件獨立的事：上面這行預設還是抓 `--interval 1h` 的 1 小時 K 線，只是每 15 分鐘重新抓一次最新資料——由於 `(symbol, open_time)` 是主鍵，還沒收盤的當前這根 K 線會被同一列覆蓋更新，不會重複。如果要讓存進去的 K 線本身就是 15 分鐘一根，改成 `python main.py --interval 15m` 即可，兩者可以獨立選擇也可以搭配著用。
 
 ## 多空訊號分析（RSI + MACD + 布林通道 + KD + 費波那契回撤）
 
