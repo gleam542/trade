@@ -1,0 +1,55 @@
+name: Docker build (trade-signal)
+
+on:
+  push:
+    paths:
+      - "trade-signal/Dockerfile"
+      - "trade-signal/docker-compose.yml"
+      - "trade-signal/.dockerignore"
+      - "trade-signal/requirements.txt"
+      - "trade-signal/**.py"
+      - ".github/workflows/docker-build.yml"
+  pull_request:
+    paths:
+      - "trade-signal/Dockerfile"
+      - "trade-signal/docker-compose.yml"
+      - "trade-signal/.dockerignore"
+      - "trade-signal/requirements.txt"
+      - "trade-signal/**.py"
+      - ".github/workflows/docker-build.yml"
+
+jobs:
+  build-and-smoke-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: trade-signal
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker compose build
+
+      - name: Start API container
+        run: docker compose up -d
+
+      - name: Wait for API to respond
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/api/symbols > /dev/null; then
+              echo "API is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not become healthy in time"
+          docker compose logs
+          exit 1
+
+      - name: Show container logs
+        if: always()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down
