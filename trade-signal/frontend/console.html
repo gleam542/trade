@@ -99,6 +99,14 @@
   }
   .conn-btn:hover { color: var(--ink); border-color: rgba(var(--accent-rgb), 0.4); }
 
+  .analyze-btn {
+    font: inherit; font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 600;
+    padding: 9px 14px; border-radius: 8px; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; cursor: pointer; margin-top: 2px;
+  }
+  .analyze-btn:hover { filter: brightness(1.08); }
+  .analyze-btn:disabled { opacity: 0.6; cursor: default; filter: none; }
+
   .symbol-tabs { display: flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; flex-wrap: wrap; }
   .tab {
     font: inherit; font-family: "IBM Plex Mono", monospace; font-size: 12.5px; font-weight: 500;
@@ -297,7 +305,7 @@
   <section class="panel advisor" id="advisorView" hidden>
     <div class="advisor-head">
       <h2>策略試算</h2>
-      <p>輸入本金與目標，呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的交易對（現貨＋合約都算，同一個代號在兩邊各自算一個候選），挑出訊號分數最高者作為參考，下方圖表會跟著切換到建議的交易對——也不是保證達成的投資建議。（掃描範圍跟上方「市場別」選單選的是現貨還是合約無關，選單只影響「交易對」分頁要看哪一邊）</p>
+      <p>輸入本金與目標，按下「分析」呼叫 API 的 <span class="num">/api/advise</span> 掃描全部追蹤中的交易對（現貨＋合約都算，同一個代號在兩邊各自算一個候選），挑出訊號分數最高者作為參考，下方圖表會跟著切換到建議的交易對——也不是保證達成的投資建議。（掃描範圍跟上方「市場別」選單選的是現貨還是合約無關，選單只影響「交易對」分頁要看哪一邊；每次分析都要重新掃描全部交易對，改了本金／盈利／小時數要再按一次「分析」才會套用新數字）</p>
     </div>
     <div class="advisor-body">
       <div class="advisor-form">
@@ -313,9 +321,10 @@
           <label for="inputHours">預計多少小時達到</label>
           <div class="input-row"><input type="number" id="inputHours" value="24" min="1" step="1"><span class="unit">小時</span></div>
         </div>
+        <button class="analyze-btn" id="analyzeBtn" type="button">分析</button>
       </div>
       <div class="advisor-result" id="advisorResult">
-        <p class="placeholder-text">尚未連線至 API。</p>
+        <p class="placeholder-text">尚未分析，調整左側條件後按「分析」開始掃描。</p>
       </div>
     </div>
     <div class="panel-head" style="margin-top:4px;">
@@ -431,6 +440,7 @@
   const tableToggle = document.getElementById("tableToggle");
   const tableWrap = document.getElementById("tableWrap");
   const advisorResult = document.getElementById("advisorResult");
+  const analyzeBtn = document.getElementById("analyzeBtn");
   const connDot = document.getElementById("connDot");
   const apiBaseInput = document.getElementById("apiBase");
   const errorBanner = document.getElementById("errorBanner");
@@ -779,31 +789,29 @@
     }
   }
 
-  // /api/advise now scans every tracked symbol across both markets, so a
+  // /api/advise scans every tracked symbol across both markets, so a
   // populated futures universe (python main.py --all) can make one scan
-  // take a few seconds instead of a few milliseconds. Debounce the
-  // input-triggered calls (scheduleLoadAdvice) so typing a number doesn't
-  // fire one overlapping request per keystroke, and drop any response that
-  // isn't from the most recent request in case two are ever in flight
-  // together anyway.
-  let adviceDebounceTimer = null;
+  // take a few seconds instead of a few milliseconds — expensive enough
+  // that it only runs when the "分析" button is clicked, not on every
+  // keystroke in the inputs above it. adviceRequestSeq still guards against
+  // a stale response landing after a newer click (e.g. a slow first
+  // request resolving after a quick second click).
   let adviceRequestSeq = 0;
-  function scheduleLoadAdvice() {
-    clearTimeout(adviceDebounceTimer);
-    adviceDebounceTimer = setTimeout(loadAdvice, 400);
-  }
+  let hasAnalyzed = false;
 
   async function loadAdvice() {
     const seq = ++adviceRequestSeq;
     const capital = Math.max(1, Number(document.getElementById("inputCapital").value) || 0);
     const profitPct = Math.max(0.01, Number(document.getElementById("inputProfit").value) || 0);
     const hours = Math.max(1, Number(document.getElementById("inputHours").value) || 1);
+    analyzeBtn.disabled = true;
     advisorResult.innerHTML = `<p class="placeholder-text">掃描全部交易對中，資料多時可能要幾秒鐘…</p>`;
     try {
       const adv = await apiGet(`/api/advise?capital=${capital}&profit_pct=${profitPct}&hours=${hours}`);
       if (seq !== adviceRequestSeq) return; // a newer request has since started; this response is stale
       clearError();
       connDot.className = "conn-dot ok";
+      hasAnalyzed = true;
       const pick = adv.pick;
       advisorPick = pick;
       if (!pick) {
@@ -860,7 +868,10 @@
       if (!advisorView.hidden) await syncChartsToAdvisorPick();
     } catch (e) {
       if (seq !== adviceRequestSeq) return;
+      advisorResult.innerHTML = `<p class="placeholder-text">分析失敗，請檢查 API 連線後按「分析」重試。</p>`;
       showError(e.message);
+    } finally {
+      if (seq === adviceRequestSeq) analyzeBtn.disabled = false;
     }
   }
 
@@ -965,7 +976,6 @@
     try {
       await loadSymbolList();
       connDot.className = "conn-dot ok";
-      await loadAdvice();
     } catch (e) {
       showError(e.message);
     }
@@ -1019,16 +1029,16 @@
       // 用建議本身附帶的 market，而非畫面上「交易對」分頁目前選的 currentMarket
       // ——建議可能是合約，即使使用者當下正在看現貨分頁（反之亦然）。
       await renderSymbolData(advisorPick.symbol, advisorPick.market);
-    } else {
+    } else if (hasAnalyzed) {
       chartContextNote.textContent = "目前無明確訊號，下方圖表維持顯示先前檢視的交易對。";
+    } else {
+      chartContextNote.textContent = "尚未分析，下方圖表維持顯示先前檢視的交易對。";
     }
   }
 
   advisorTab.addEventListener("click", activateAdvisorTab);
   document.getElementById("reconnectBtn").addEventListener("click", connect);
-  ["inputCapital", "inputProfit", "inputHours"].forEach((id) => {
-    document.getElementById(id).addEventListener("input", scheduleLoadAdvice);
-  });
+  analyzeBtn.addEventListener("click", loadAdvice);
 
   connect();
 })();
