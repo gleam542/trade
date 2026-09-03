@@ -506,6 +506,14 @@
   const errorBanner = document.getElementById("errorBanner");
   const errorText = document.getElementById("errorText");
 
+  // 這個頁面是由 api.py 自己提供時（含透過隧道對外的情況），API 就在同源，
+  // 直接用當下的 origin——寫死 localhost:8000 的話，從手機或外網開會指向
+  // 那台裝置自己而抓不到資料。用 file:// 直接開啟時 origin 是 "null"，
+  // 這時保留 HTML 裡的預設值。
+  if (location.protocol.startsWith("http")) {
+    apiBaseInput.value = location.origin;
+  }
+
   function apiBase() {
     return apiBaseInput.value.trim().replace(/\/+$/, "");
   }
