@@ -127,6 +127,7 @@ def main() -> None:
     parser.add_argument("--kd-overbought", type=float, default=80.0, help="KD 超買門檻")
     parser.add_argument("--fib-lookback", type=int, default=55, help="費波那契回撤取樣根數")
     parser.add_argument("--fib-tolerance-pct", type=float, default=0.05, help="費波那契回撤位容忍範圍（佔波段幅度比例）")
+    parser.add_argument("--trend-period", type=int, default=100, help="趨勢過濾的長期 EMA 週期，0 = 關閉過濾")
     args = parser.parse_args()
 
     signal_kwargs = dict(
@@ -145,6 +146,7 @@ def main() -> None:
         kd_overbought=args.kd_overbought,
         fib_lookback=args.fib_lookback,
         fib_tolerance_pct=args.fib_tolerance_pct,
+        trend_period=args.trend_period,
     )
 
     conn = get_connection(args.db)

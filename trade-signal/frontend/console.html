@@ -21,6 +21,7 @@
     --series-price: #4d9fff;
     --series-band: #ff8a3d;
     --series-rsi: #00e5c0;
+    --series-trend: #b18cff;
     --good: #00ff9d;
     --good-rgb: 0, 255, 157;
     --critical: #ff3b5c;
@@ -193,12 +194,6 @@
   .tooltip .t-badge.long { background: rgba(var(--good-rgb), 0.15); color: var(--good); }
   .tooltip .t-badge.short { background: rgba(var(--critical-rgb), 0.15); color: var(--critical); }
 
-  .scrubber-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px 2px; }
-  .scrubber-row label { font-size: 9.5px; color: var(--ink-muted); white-space: nowrap; font-family: var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
-  .scrubber { -webkit-appearance: none; appearance: none; width: 100%; height: 2px; border-radius: 0; background: var(--baseline); }
-  .scrubber::-webkit-slider-thumb { -webkit-appearance: none; width: 3px; height: 16px; border-radius: 1px; background: var(--accent); border: none; cursor: pointer; box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.7); }
-  .scrubber::-moz-range-thumb { width: 3px; height: 16px; border-radius: 1px; background: var(--accent); border: none; cursor: pointer; box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.7); }
-
   .summary-strip {
     display: flex; align-items: stretch; gap: 14px; flex-wrap: wrap;
     background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
@@ -311,7 +306,7 @@
      這裡用一條覆蓋規則而不是逐個改上面的宣告，是為了讓「為什麼」集中在一處。 */
   .panel-head h2, .advisor-head h2, .stat .label, .legend li, .field label, .field .unit,
   .rec-stat .label, .rec-symbol .eyebrow, .confidence-block .label, .signal-pill .eyebrow,
-  .scrubber-row label, thead th, .table-toggle, .conn-btn, .analyze-btn,
+  thead th, .table-toggle, .conn-btn, .analyze-btn,
   .rec-direction, .market-tag, .rec-scope-note, footer.foot {
     font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
     letter-spacing: 0.04em;
@@ -417,6 +412,7 @@
         <li><span class="key" style="background:var(--series-price)"></span>收盤價</li>
         <li><span class="key area" style="background:var(--series-band)"></span>布林通道 (20, 2σ)</li>
         <li><span class="key" style="background:var(--series-rsi)"></span>費波 61.8% 回撤位</li>
+        <li><span class="key" style="background:var(--series-trend)"></span>EMA100（趨勢過濾）</li>
         <li><span class="key tri-up"></span>做多訊號</li>
         <li><span class="key tri-down"></span>做空訊號</li>
       </ul>
@@ -464,16 +460,11 @@
     <div class="chart-wrap" id="macdWrap"><svg id="macdSvg" viewBox="0 0 960 160" preserveAspectRatio="none" role="img" aria-label="MACD 指標走勢圖"></svg></div>
   </section>
 
-  <div class="scrubber-row">
-    <label for="scrubber">鍵盤 / 觸控掃描：</label>
-    <input type="range" id="scrubber" class="scrubber" min="0" max="0" value="0" aria-label="沿時間軸掃描查看數值">
-  </div>
-
   <section class="table-section">
     <button class="table-toggle" id="tableToggle" aria-expanded="false" aria-controls="tableWrap">顯示原始資料表 ▾</button>
     <div class="table-wrap" id="tableWrap" hidden>
       <table>
-        <thead><tr><th>時間</th><th>收盤</th><th>RSI</th><th>MACD</th><th>訊號線</th><th>布林上軌</th><th>布林下軌</th><th>KD %K</th><th>KD %D</th><th>分數</th><th>判斷</th><th>止損價位</th></tr></thead>
+        <thead><tr><th>時間</th><th>收盤</th><th>RSI</th><th>MACD</th><th>訊號線</th><th>布林上軌</th><th>布林下軌</th><th>KD %K</th><th>KD %D</th><th>EMA100</th><th>分數</th><th>判斷</th><th>止損價位</th></tr></thead>
         <tbody id="tableBody"></tbody>
       </table>
     </div>
@@ -504,7 +495,6 @@
   const macdSvg = document.getElementById("macdSvg");
   const tooltip = document.getElementById("tooltip");
   const priceWrap = document.getElementById("priceWrap");
-  const scrubber = document.getElementById("scrubber");
   const summaryStrip = document.getElementById("summaryStrip");
   const tableBody = document.getElementById("tableBody");
   const tableToggle = document.getElementById("tableToggle");
@@ -599,6 +589,13 @@
       min = Math.min(min, last.fibLevel);
       max = Math.max(max, last.fibLevel);
     }
+    // 整條 EMA 都要納入範圍（不只最後一根）——它是條完整的線，
+    // 趨勢轉折時可能跑到價格區間外面去。
+    const trendVals = data.map((d) => d.trendEma).filter((v) => v != null);
+    if (trendVals.length) {
+      min = Math.min(min, ...trendVals);
+      max = Math.max(max, ...trendVals);
+    }
     const x = makeXScale(n, W, padL, padR);
     const y = makeYScale(min, max, H, padT, padB);
 
@@ -621,6 +618,9 @@
     priceSvg.appendChild(el("path", { d: areaD, fill: "var(--series-band)", opacity: 0.10, stroke: "none" }));
     priceSvg.appendChild(el("path", { d: pathFor(data.map((d) => d.bbUpper), x, y), fill: "none", stroke: "var(--series-band)", "stroke-width": 1, opacity: 0.55 }));
     priceSvg.appendChild(el("path", { d: pathFor(data.map((d) => d.bbLower), x, y), fill: "none", stroke: "var(--series-band)", "stroke-width": 1, opacity: 0.55 }));
+    // 趨勢過濾用的長期 EMA。pathFor 會跳過 null，所以還沒暖機的前 99 根
+    // 自然留空，線從有值的那一根才開始。畫在收盤價下面一層。
+    priceSvg.appendChild(el("path", { d: pathFor(data.map((d) => d.trendEma), x, y), fill: "none", stroke: "var(--series-trend)", "stroke-width": 1.5, opacity: 0.85 }));
     priceSvg.appendChild(el("path", { d: pathFor(closes, x, y), fill: "none", stroke: "var(--series-price)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
 
     data.forEach((d, i) => {
@@ -743,6 +743,15 @@
     const kdTile = last.kdK != null
       ? `<div class="stat"><span class="label">KD %K / %D</span><span class="value tabular">${last.kdK.toFixed(1)} / ${last.kdD.toFixed(1)}</span></div>`
       : "";
+    // 趨勢過濾的判斷依據就是收盤在 EMA100 的哪一邊，所以標出方向；
+    // 顏色沿用漲跌色（在均線上=偏多環境），跟訊號本身的顏色是兩件事。
+    const trendTile = last.trendEma != null
+      ? (() => {
+          const above = last.c > last.trendEma;
+          const color = above ? "var(--good)" : "var(--critical)";
+          return `<div class="stat"><span class="label">EMA100（趨勢）</span><span class="value tabular" style="color:${color}">${fmtPrice(last.trendEma)} ${above ? "▲" : "▼"}</span></div>`;
+        })()
+      : "";
     summaryStrip.innerHTML = `
       <div class="signal-pill" data-state="${state}">
         <span class="eyebrow">最新判斷</span>
@@ -752,6 +761,7 @@
         <div class="stat"><span class="label">最新收盤</span><span class="value tabular">${fmtPrice(last.c)}</span></div>
         <div class="stat"><span class="label">RSI</span><span class="value tabular">${last.rsi.toFixed(1)}</span></div>
         ${kdTile}
+        ${trendTile}
         <div class="stat"><span class="label">總分</span><span class="value tabular">${last.score > 0 ? "+" + last.score : last.score}</span></div>
         ${stopLossTile}
       </div>
@@ -767,6 +777,7 @@
         <td>${d.macd.toFixed(2)}</td><td>${d.macdSignal.toFixed(2)}</td>
         <td>${fmtPrice(d.bbUpper)}</td><td>${fmtPrice(d.bbLower)}</td>
         <td>${d.kdK != null ? d.kdK.toFixed(1) : "—"}</td><td>${d.kdD != null ? d.kdD.toFixed(1) : "—"}</td>
+        <td>${d.trendEma != null ? fmtPrice(d.trendEma) : "—"}</td>
         <td>${d.score > 0 ? "+" + d.score : d.score}</td><td class="${sigClass}">${SYMBOL_LABEL[d.signal]}</td>
         <td>${d.stopLoss != null ? fmtPrice(d.stopLoss) : "—"}</td>
       </tr>`;
@@ -808,6 +819,7 @@
       <div class="t-row"><span class="t-key">布林上/下軌</span><span class="t-val">${fmtPrice(d.bbUpper)} / ${fmtPrice(d.bbLower)}</span></div>
       ${d.kdK != null ? `<div class="t-row"><span class="t-key">KD %K/%D</span><span class="t-val">${d.kdK.toFixed(1)} / ${d.kdD.toFixed(1)}</span></div>` : ""}
       ${d.fibLevel != null ? `<div class="t-row"><span class="t-key">費波 61.8%</span><span class="t-val">${fmtPrice(d.fibLevel)}</span></div>` : ""}
+      ${d.trendEma != null ? `<div class="t-row"><span class="t-key"><span class="stroke" style="background:var(--series-trend)"></span>EMA100</span><span class="t-val">${fmtPrice(d.trendEma)}</span></div>` : ""}
       ${d.stopLoss != null ? `<div class="t-row"><span class="t-key">止損價位</span><span class="t-val">${fmtPrice(d.stopLoss)}</span></div>` : ""}
       ${badge}
     `;
@@ -817,7 +829,6 @@
     let left = px + 14;
     if (left + 210 > wrapRect.width) left = px - 210 - 14;
     tooltip.style.left = Math.max(4, left) + "px";
-    scrubber.value = String(i);
   }
   function hideCrosshair() {
     document.querySelectorAll(".crosshair-line, .crosshair-dot").forEach((n) => (n.style.opacity = 0));
@@ -832,7 +843,6 @@
     wrap.addEventListener("pointermove", (e) => showCrosshair(indexFromClientX(e.clientX)));
     wrap.addEventListener("pointerleave", hideCrosshair);
   });
-  scrubber.addEventListener("input", () => showCrosshair(Number(scrubber.value)));
   tableToggle.addEventListener("click", () => {
     const isHidden = tableWrap.hidden;
     tableWrap.hidden = !isHidden;
@@ -852,8 +862,6 @@
         return;
       }
       renderPrice(bars); renderRsi(bars); renderKd(bars); renderMacd(bars); renderSummary(bars); renderTable(bars);
-      scrubber.max = String(bars.length - 1);
-      scrubber.value = String(bars.length - 1);
       hideCrosshair();
       clearError();
       connDot.className = "conn-dot ok";
@@ -1039,7 +1047,9 @@
       futuresSymbolList.innerHTML = symbols.map((s) => `<option value="${s}"></option>`).join("");
     }
     if (symbols.length) {
-      await activateSymbolTab(symbols[0]);
+      // 預設看 BTCUSDT；照字母序取第一個會落在 0GUSDT 這種沒人在看的冷門幣上。
+      // 資料庫裡沒有 BTCUSDT 時（例如只抓了幾個 --symbols）才退回第一個。
+      await activateSymbolTab(symbols.includes("BTCUSDT") ? "BTCUSDT" : symbols[0]);
     } else {
       currentBars = [];
       summaryStrip.innerHTML = `<p class="placeholder-text">目前資料庫裡沒有 ${currentMarket === "spot" ? "現貨" : "合約"} 資料。</p>`;
