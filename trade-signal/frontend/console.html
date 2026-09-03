@@ -122,6 +122,11 @@
   }
   .market-select + .market-select { margin-left: 5px; }
   .market-select:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+  /* 搜尋框：跟旁邊的市場別 select 並排，所以沿用 .market-select 的外觀，
+     只補 input 專屬的部分（寬度、placeholder、聚焦光暈）。 */
+  .symbol-search { margin-left: 5px; width: 190px; }
+  .symbol-search::placeholder { color: var(--ink-muted); }
+  .symbol-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.3); }
   button:focus-visible, input:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
   .local-banner {
@@ -356,7 +361,11 @@
       <option value="spot">現貨</option>
       <option value="futures" selected>合約（USDT 永續）</option>
     </select>
-    <select class="market-select" id="futuresSymbolSelect" aria-label="合約交易對" hidden></select>
+    <!-- 合約有五百多個，用 <select> 得整串捲。<datalist> 是原生 typeahead，
+         打幾個字就篩，不用自己寫搜尋。 -->
+    <input class="market-select symbol-search" id="futuresSymbolSelect" list="futuresSymbolList"
+           aria-label="合約交易對（可輸入搜尋）" placeholder="搜尋交易對…" spellcheck="false" autocomplete="off" hidden>
+    <datalist id="futuresSymbolList"></datalist>
   </nav>
 
   <section class="panel advisor" id="advisorView" hidden>
@@ -485,6 +494,10 @@
   const symbolTabs = document.getElementById("symbolTabs");
   const marketSelect = document.getElementById("marketSelect");
   const futuresSymbolSelect = document.getElementById("futuresSymbolSelect");
+  const futuresSymbolList = document.getElementById("futuresSymbolList");
+  // 用來擋掉「在搜尋框裡打了不存在的代號」——input 的 change 連失焦都會觸發，
+  // 不驗證的話一個錯字就會送出注定 404 的請求。
+  let futuresSymbols = new Set();
   const priceSvg = document.getElementById("priceSvg");
   const rsiSvg = document.getElementById("rsiSvg");
   const kdSvg = document.getElementById("kdSvg");
@@ -1011,7 +1024,8 @@
     const { symbols } = await apiGet(`/api/symbols?market=${currentMarket}`);
     if (currentMarket === "spot") {
       futuresSymbolSelect.hidden = true;
-      futuresSymbolSelect.innerHTML = "";
+      futuresSymbolList.innerHTML = "";
+      futuresSymbols = new Set();
       symbolTabs.innerHTML = symbols.map((s, idx) =>
         `<button class="tab${idx === 0 ? " active" : ""}" data-symbol="${s}" role="tab" aria-selected="${idx === 0}">${s}</button>`
       ).join("");
@@ -1021,7 +1035,8 @@
     } else {
       symbolTabs.innerHTML = "";
       futuresSymbolSelect.hidden = false;
-      futuresSymbolSelect.innerHTML = symbols.map((s) => `<option value="${s}">${s}</option>`).join("");
+      futuresSymbols = new Set(symbols);
+      futuresSymbolList.innerHTML = symbols.map((s) => `<option value="${s}"></option>`).join("");
     }
     if (symbols.length) {
       await activateSymbolTab(symbols[0]);
@@ -1046,8 +1061,18 @@
     loadSymbolList().catch((e) => showError(e.message));
   });
   futuresSymbolSelect.addEventListener("change", () => {
-    activateSymbolTab(futuresSymbolSelect.value).catch((e) => showError(e.message));
+    const symbol = futuresSymbolSelect.value.trim().toUpperCase();
+    if (!futuresSymbols.has(symbol)) {
+      // 錯字或打一半就失焦：還原成圖表正在顯示的那個，否則搜尋框會停在
+      // 一個不存在的代號、跟下方圖表對不上。
+      futuresSymbolSelect.value = current || "";
+      return;
+    }
+    futuresSymbolSelect.value = symbol;
+    activateSymbolTab(symbol).catch((e) => showError(e.message));
   });
+  // 點進搜尋框就全選，直接打新的代號覆蓋掉舊的，不用先刪
+  futuresSymbolSelect.addEventListener("focus", () => futuresSymbolSelect.select());
 
   const advisorView = document.getElementById("advisorView");
   const advisorTab = document.getElementById("advisorTab");
