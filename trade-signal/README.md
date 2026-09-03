@@ -198,7 +198,18 @@ cloudflared tunnel --url http://localhost:8000
 
 它會印出一個 `https://<隨機字串>.trycloudflare.com` 網址，開那個網址就等同開本機的 `localhost:8000`（頁面與 API 都在裡面）。行程關掉網址就失效。
 
-**這個網址沒有任何認證**——`api.py` 沒有登入機制，CORS 也是全開，拿到網址的人就能讀你資料庫裡的所有交易對與訊號。存放的都是 Binance 公開行情、不含個人資料，但它畢竟是跑在你自己機器上的服務。要給別人看、或想長期開著，至少該加一層保護（Cloudflare Access、反向代理的 Basic Auth）並把 `allow_origins` 收窄到實際的來源網域。
+**開之前先設密碼**。`api.py` 有兩道防護，都預設關閉（本機使用不用設定任何東西）：
+
+```bash
+API_PASSWORD='你自己想一個密碼' ./.venv/bin/python -m uvicorn api:app --port 8000
+```
+
+- `API_PASSWORD`：設了就對**所有**請求啟用 HTTP Basic 認證，帳號預設 `trade`（可用 `API_USER` 改）。沒設 = 完全不認證，跟以前一樣。瀏覽器開啟時會跳出登入框。
+- `CORS_ORIGINS`：逗號分隔，覆蓋預設的 localhost 允許清單（預設 `http://localhost:8000,http://127.0.0.1:8000,null`，其中 `null` 是用 `file://` 開頁面時的 Origin）。前端現在同源，所以只有從 `file://` 或另一個 port 開頁面時才需要動它。
+
+認證是寫成 middleware 而不是 FastAPI 的 app 層級 dependency——**dependency 不會套用到 `app.mount()` 掛上的 sub-application**，靜態前端會整個沒被擋（API 回 401，但頁面本身照樣 HTTP 200 吐出來）。middleware 在所有請求之前跑，`/`、`/console.html`、`/docs`、`/api/*` 都一起擋。
+
+沒設密碼就把網址對外開的話：拿到網址的人就能讀你資料庫裡的所有交易對與訊號。存放的都是 Binance 公開行情、不含個人資料，但它畢竟是跑在你自己機器上的服務。長期開著或要給別人用，Basic Auth 只是最低標，考慮 Cloudflare Access 這類前置驗證。
 
 交易對分頁旁邊有個「市場別」下拉選單（現貨／合約）。現貨交易對數量少，維持原本的分頁介面；切到合約會改成一個**可輸入搜尋的交易對欄位**——因為 `python main.py --all` 抓回來的合約可能有三、四百個，全部做成分頁會直接把版面撐爆，做成下拉選單也得整串捲。這個欄位用的是原生 `<datalist>`，打幾個字就會篩出符合的代號（不分大小寫），選到清單裡不存在的代號時不會送出請求，會還原成目前圖表顯示的那個。頁面開啟時預設顯示 `BTCUSDT`（資料庫裡沒有的話才退回清單第一個——照字母序的第一個往往是 `0GUSDT` 這種冷門幣）。這個選單只影響「交易對」分頁跟下面的圖表要顯示現貨還是合約資料；**策略試算的掃描範圍不受這個選單影響**，永遠現貨＋合約都掃（見上面 `/api/advise` 的說明），下方圖表會依照建議結果本身的 `market` 自動切換，不是跟著選單走。
 

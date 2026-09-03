@@ -3,18 +3,29 @@
 Run locally with:
     uvicorn api:app --reload --port 8000
 
-CORS is wide open (allow_origins=["*"]) because this is meant to be called
-from a static frontend file opened straight from disk or a different local
-port during development — lock it down before exposing this beyond your own
-machine.
+This also serves `frontend/` at the root, so one port covers both the API
+and the page (see the mount at the bottom of this file).
+
+Two guards, both off by default so local use needs no configuration:
+
+- `API_PASSWORD` (optional, with `API_USER` defaulting to "trade") turns on
+  HTTP Basic auth for every request. Unset = no auth, as before.
+- `CORS_ORIGINS` (optional, comma-separated) replaces the default localhost
+  allowlist. The frontend is same-origin now, so CORS only matters when the
+  page is opened from `file://` or a separate port.
+
+Set both before putting this behind a public tunnel — see README.
 """
 
+import base64
+import os
+import secrets
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from backtest import backtest as run_backtest
@@ -24,13 +35,51 @@ from signals import generate_signal, generate_signal_series
 
 Market = Literal["spot", "futures"]
 
+# "null" 是用 file:// 直接開啟頁面時瀏覽器送出的 Origin。
+_DEFAULT_CORS = "http://localhost:8000,http://127.0.0.1:8000,null"
+_CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", _DEFAULT_CORS).split(",") if o.strip()]
+
+_AUTH_PASSWORD = os.environ.get("API_PASSWORD")
+_AUTH_USER = os.environ.get("API_USER", "trade")
+
 app = FastAPI(title="trade-signal API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_CORS_ORIGINS,
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+
+def _credentials_ok(header: str | None) -> bool:
+    """驗 `Authorization: Basic base64(user:pass)`。
+
+    比對用 compare_digest 而不是 ==：後者逐字元比對、遇到不同就提早回傳，
+    回應時間會洩漏猜對了幾個字元（時序攻擊）。
+    """
+    if not header or not header.startswith("Basic "):
+        return False
+    try:
+        decoded = base64.b64decode(header[6:], validate=True).decode("utf-8")
+        user, _, password = decoded.partition(":")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return secrets.compare_digest(user, _AUTH_USER) and secrets.compare_digest(password, _AUTH_PASSWORD)
+
+
+# 認證寫成 middleware 而不是 app 層級的 dependency：dependency 不會套用到
+# 底下用 app.mount() 掛上的 sub-application，靜態前端會整個沒被擋（HTTP 200
+# 直接吐出頁面）。middleware 在所有請求之前跑，mount 的路徑也包含在內。
+@app.middleware("http")
+async def _basic_auth(request: Request, call_next):
+    if _AUTH_PASSWORD and not _credentials_ok(request.headers.get("authorization")):
+        return JSONResponse(
+            {"detail": "需要帳號密碼"},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            # 少了這個標頭瀏覽器不會跳出登入框，只會顯示一頁 401。
+            headers={"WWW-Authenticate": 'Basic realm="trade-signal"'},
+        )
+    return await call_next(request)
 
 
 def _known_symbols(market: Market = "spot") -> list[str]:
