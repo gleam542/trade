@@ -1023,7 +1023,9 @@
       futuresSymbolList.innerHTML = symbols.map((s) => `<option value="${s}"></option>`).join("");
     }
     if (symbols.length) {
-      await activateSymbolTab(symbols[0]);
+      // 預設看 BTCUSDT；照字母序取第一個會落在 0GUSDT 這種沒人在看的冷門幣上。
+      // 資料庫裡沒有 BTCUSDT 時（例如只抓了幾個 --symbols）才退回第一個。
+      await activateSymbolTab(symbols.includes("BTCUSDT") ? "BTCUSDT" : symbols[0]);
     } else {
       currentBars = [];
       summaryStrip.innerHTML = `<p class="placeholder-text">目前資料庫裡沒有 ${currentMarket === "spot" ? "現貨" : "合約"} 資料。</p>`;
