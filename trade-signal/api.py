@@ -126,6 +126,7 @@ def get_chart(
                 fibSwingLow=result["fib_swing_low"],
                 fibLevel=result["fib_level"],
                 fibUptrend=result["fib_uptrend"],
+                trendEma=result["trend_ema"],
             )
         bars.append(entry)
     return {"symbol": symbol, "bars": bars}
