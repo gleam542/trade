@@ -103,7 +103,25 @@ launchctl bootout gui/$(id -u)/com.trade-signal.fetch        # 停用
 
 跟 cron 一樣要注意環境變數不會自動帶入，所以 `DATABASE_URL` 寫在 `EnvironmentVariables` 裡。上面範例一輪跑兩批（現貨 + 合約），因為 `main.py` 一次只能抓一種市場——只跑 `--all` 的話現貨資料會停在最後一次手動抓取的時間點不再更新（`docker-compose.yml` 的 `scheduler` 就只跑合約，同樣要注意）。
 
-API 跟前端也可以照這個模式各寫一個 plist（把 `StartInterval` 換成 `KeepAlive`），指令分別是 `./.venv/bin/python -m uvicorn api:app --port 8000` 跟 `./.venv/bin/python -m http.server 5500 -d frontend`。
+**改了 plist 內容之後，`kickstart` 是沒用的**——這點很容易踩到而且完全不會報錯。launchd 是在 `bootstrap` 時把 plist 讀進記憶體的，`kickstart -k` 只把行程殺掉重開，用的還是舊設定。所以改了環境變數（例如加密碼）、路徑或間隔之後，行程看起來是新的、卻完全沒吃到新設定，會誤以為是自己填錯：
+
+```bash
+# 改了 plist 內容 → 必須完整卸載再載入
+launchctl bootout gui/$(id -u)/com.trade-signal.api
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.trade-signal.api.plist
+
+# 只改了 .py 程式碼、plist 沒動 → kickstart 就夠（原地重啟，比較快）
+launchctl kickstart -k gui/$(id -u)/com.trade-signal.api
+```
+
+`bootout` 之後緊接著 `bootstrap` 有機會撞到 `Bootstrap failed: 5: Input/output error`——那是前一個還在卸載中的競態，不是 plist 有問題，等一兩秒再 `bootstrap` 就好。
+
+API 也可以照這個模式寫一個 plist（把 `StartInterval` 換成 `KeepAlive`），指令是 `./.venv/bin/python -m uvicorn api:app --port 8000`。前端不用另外開服務——`api.py` 已經把 `frontend/` 掛在同一個 port 上了（見下方「API + 前端」）。要放密碼的話記得 plist 是明文檔，`chmod 600` 一下；用 `plutil` 寫入比手改 XML 不容易出錯：
+
+```bash
+plutil -replace EnvironmentVariables.API_PASSWORD -string '你的密碼' \
+  ~/Library/LaunchAgents/com.trade-signal.api.plist
+```
 
 **專案放在 `~/Desktop`／`~/Documents`／`~/Downloads` 底下的話會撞到 macOS TCC 隱私權限**——launchd 啟動的行程沒有這些目錄的存取權，而且症狀會因為執行檔而異，不容易看出是權限問題：
 
@@ -196,7 +214,14 @@ uvicorn api:app --reload --port 8000
 cloudflared tunnel --url http://localhost:8000
 ```
 
-它會印出一個 `https://<隨機字串>.trycloudflare.com` 網址，開那個網址就等同開本機的 `localhost:8000`（頁面與 API 都在裡面）。行程關掉網址就失效。
+它會印出一個 `https://<隨機字串>.trycloudflare.com` 網址，開那個網址就等同開本機的 `localhost:8000`（頁面與 API 都在裡面）。手機開這個網址就能用，加到主畫面後跟 app 差不多。
+
+幾個實務上的注意事項：
+
+- **那個行程就是隧道本身**。關掉終端機視窗、`Ctrl+C`、或電腦睡眠，網址立刻失效——它不是背景服務。要長時間開著就讓那個視窗留著，或自己包一個 launchd agent。
+- **每次啟動都是不同的隨機網址**。這種不需登入的 quick tunnel 沒辦法指定名稱。想要固定網址得註冊 Cloudflare 帳號、建一條 [named tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/)（免費，但要綁一個自己的域名）。
+- **API 綁在 `127.0.0.1` 不影響隧道**。`cloudflared` 是從這台機器自己連 `localhost:8000`，所以不必為了對外而改成 `--host 0.0.0.0`。反過來說，如果你想要的只是「同一個 Wi-Fi 下用手機看」，那才需要改綁定並用內網 IP，而且那樣做等於把服務開放給整個區網。
+- 驗證真的通了、而且防護有效：`curl -s -o /dev/null -w '%{http_code}\n' https://<你的網址>/api/symbols` 應該回 **401**（有帶 `www-authenticate` 標頭，手機瀏覽器才會跳登入框）。回 200 表示認證沒生效，別留著它對外。
 
 **開之前先設密碼**。`api.py` 有兩道防護，都預設關閉（本機使用不用設定任何東西）：
 
@@ -209,7 +234,9 @@ API_PASSWORD='你自己想一個密碼' ./.venv/bin/python -m uvicorn api:app --
 
 認證是寫成 middleware 而不是 FastAPI 的 app 層級 dependency——**dependency 不會套用到 `app.mount()` 掛上的 sub-application**，靜態前端會整個沒被擋（API 回 401，但頁面本身照樣 HTTP 200 吐出來）。middleware 在所有請求之前跑，`/`、`/console.html`、`/docs`、`/api/*` 都一起擋。
 
-沒設密碼就把網址對外開的話：拿到網址的人就能讀你資料庫裡的所有交易對與訊號。存放的都是 Binance 公開行情、不含個人資料，但它畢竟是跑在你自己機器上的服務。長期開著或要給別人用，Basic Auth 只是最低標，考慮 Cloudflare Access 這類前置驗證。
+沒設密碼就把網址對外開的話：拿到網址的人就能讀你資料庫裡的所有交易對與訊號。存放的都是 Binance 公開行情、不含個人資料，但它畢竟是跑在你自己機器上的服務。
+
+**Basic Auth 只是最低標**：它擋得住隨機掃描，但沒有速率限制——攻擊者可以無限次嘗試猜密碼，所以密碼的長度與隨機性就是唯一的防線（別用電話、生日、姓名這類個人資訊）。長期公開或要給別人用，把驗證交給 Cloudflare Access 這類前置服務會穩得多。
 
 交易對分頁旁邊有個「市場別」下拉選單（現貨／合約）。現貨交易對數量少，維持原本的分頁介面；切到合約會改成一個**可輸入搜尋的交易對欄位**——因為 `python main.py --all` 抓回來的合約可能有三、四百個，全部做成分頁會直接把版面撐爆，做成下拉選單也得整串捲。這個欄位用的是原生 `<datalist>`，打幾個字就會篩出符合的代號（不分大小寫），選到清單裡不存在的代號時不會送出請求，會還原成目前圖表顯示的那個。頁面開啟時預設顯示 `BTCUSDT`（資料庫裡沒有的話才退回清單第一個——照字母序的第一個往往是 `0GUSDT` 這種冷門幣）。這個選單只影響「交易對」分頁跟下面的圖表要顯示現貨還是合約資料；**策略試算的掃描範圍不受這個選單影響**，永遠現貨＋合約都掃（見上面 `/api/advise` 的說明），下方圖表會依照建議結果本身的 `market` 自動切換，不是跟著選單走。
 
