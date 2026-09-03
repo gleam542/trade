@@ -151,6 +151,7 @@ def get_backtest(
     kd_overbought: float = 80.0,
     fib_lookback: int = 55,
     fib_tolerance_pct: float = 0.05,
+    trend_period: int = 100,
 ):
     highs, lows, closes = _ohlc_or_404(symbol, market)
     return run_backtest(
@@ -173,6 +174,7 @@ def get_backtest(
         kd_overbought=kd_overbought,
         fib_lookback=fib_lookback,
         fib_tolerance_pct=fib_tolerance_pct,
+        trend_period=trend_period,
     )
 
 

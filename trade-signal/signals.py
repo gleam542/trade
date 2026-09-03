@@ -13,7 +13,7 @@ This is a rule-based heuristic, not a trading recommendation:
 Each contributes +1/-1 to a score; the sign of the total score decides the call.
 """
 
-from indicators import atr, bollinger_bands, fibonacci_retracement, macd, rsi, stochastic_kd
+from indicators import atr, bollinger_bands, ema, fibonacci_retracement, macd, rsi, stochastic_kd
 
 
 def _decide(
@@ -32,6 +32,8 @@ def _decide(
     kd_overbought: float = 80.0,
     fib_levels: tuple[float, float, bool] | None = None,
     fib_tolerance_pct: float = 0.05,
+    trend_ema: float | None = None,
+    trend_period: int = 0,
 ) -> tuple[str, int, list[str]]:
     """Pure scoring rule, isolated so it can be unit-tested without real price data."""
     bullish_cross = macd_prev <= signal_prev and macd_now > signal_now
@@ -93,6 +95,24 @@ def _decide(
         if not reasons:
             reasons.append("RSI、MACD、布林通道、KD、費波那契回撤皆未觸發訊號")
 
+    # 趨勢過濾：上面五項全是均值回歸指標（超買就看空、超賣就看多），在單邊
+    # 趨勢裡會一路逆勢進場、一路被停損。價格在長期 EMA 之上時擋掉做空、在
+    # 之下時擋掉做多，只留順勢的那一邊。
+    #
+    # score 與 reasons 都保留原值不動,只改 decision——這樣前端／回測仍看得到
+    # 「本來要發什麼訊號、為什麼被擋」，而不是憑空變成 neutral。
+    if trend_ema is not None:
+        if decision == "short" and latest_close > trend_ema:
+            decision = "neutral"
+            reasons.append(
+                f"做空訊號被趨勢過濾擋下：收盤 {latest_close:.4g} 在 EMA{trend_period} {trend_ema:.4g} 之上（上升趨勢不逆勢做空）"
+            )
+        elif decision == "long" and latest_close < trend_ema:
+            decision = "neutral"
+            reasons.append(
+                f"做多訊號被趨勢過濾擋下：收盤 {latest_close:.4g} 在 EMA{trend_period} {trend_ema:.4g} 之下（下降趨勢不逆勢做多）"
+            )
+
     return decision, score, reasons
 
 
@@ -113,6 +133,7 @@ _EMPTY_RESULT = {
     "fib_swing_low": None,
     "fib_level": None,
     "fib_uptrend": None,
+    "trend_ema": None,
 }
 
 
@@ -137,6 +158,7 @@ def generate_signal_series(
     kd_overbought: float = 80.0,
     fib_lookback: int = 55,
     fib_tolerance_pct: float = 0.05,
+    trend_period: int = 100,
 ) -> list[dict]:
     """The result `generate_signal(closes[: i + 1], highs[: i + 1], lows[: i + 1])`
     would give at every bar `i`, computed for the whole series in one pass
@@ -152,15 +174,22 @@ def generate_signal_series(
     of the O(n²) that calling `generate_signal()` in a loop costs (each
     call there redoes every indicator over an ever-growing prefix).
     `generate_signal()` itself is just `generate_signal_series(...)[-1]`.
+
+    `trend_period` is the long EMA used to filter out counter-trend calls
+    (see `_decide`); pass 0 to disable the filter and get the raw
+    mean-reversion signal. Bars before the EMA has warmed up are simply
+    unfiltered — there's no trend reading to filter against yet.
     """
     n = len(closes)
     rsi_values = rsi(closes, rsi_period)
     macd_line, signal_line, _ = macd(closes, macd_fast, macd_slow, macd_signal)
     bb_middle, bb_upper, bb_lower = bollinger_bands(closes, bb_period, bb_std)
+    trend_values = ema(closes, trend_period) if trend_period > 0 else []
 
     rsi_offset = n - len(rsi_values)
     macd_offset = n - len(macd_line)
     bb_offset = n - len(bb_upper)
+    trend_offset = n - len(trend_values)
 
     have_hl = highs is not None and lows is not None
     kd_k_values, kd_d_values = ([], [])
@@ -186,6 +215,11 @@ def generate_signal_series(
         signal_now, signal_prev = signal_line[i - macd_offset], signal_line[i - 1 - macd_offset]
         latest_close = closes[i]
         upper_band, lower_band = bb_upper[i - bb_offset], bb_lower[i - bb_offset]
+
+        # 沒暖機完（i < trend_offset）就是 None，代表這根不過濾——此時還沒有
+        # 趨勢讀數可比。trend_period=0 時 trend_values 為空、offset 為 n，
+        # 這個條件永遠不成立，等於整個過濾關閉。
+        trend_now = trend_values[i - trend_offset] if i >= trend_offset else None
 
         latest_k = None
         latest_d = None
@@ -215,6 +249,8 @@ def generate_signal_series(
             kd_overbought,
             fib_levels,
             fib_tolerance_pct,
+            trend_now,
+            trend_period,
         )
 
         atr_value = None
@@ -253,6 +289,7 @@ def generate_signal_series(
                 "fib_swing_low": round(fib_swing_low, 4) if fib_swing_low is not None else None,
                 "fib_level": round(fib_level, 4) if fib_level is not None else None,
                 "fib_uptrend": fib_uptrend,
+                "trend_ema": round(trend_now, 4) if trend_now is not None else None,
             }
         )
 
@@ -280,6 +317,7 @@ def generate_signal(
     kd_overbought: float = 80.0,
     fib_lookback: int = 55,
     fib_tolerance_pct: float = 0.05,
+    trend_period: int = 100,
 ) -> dict:
     """`highs`/`lows` are optional (same length as `closes`) — pass them to
     also get an ATR-based stop-loss price, the KD (stochastic) oscillator,
@@ -313,4 +351,5 @@ def generate_signal(
         kd_overbought,
         fib_lookback,
         fib_tolerance_pct,
+        trend_period,
     )[-1]
