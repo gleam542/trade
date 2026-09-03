@@ -61,6 +61,59 @@ python main.py
 
 cron 執行環境不會自動帶入你互動式 shell 的環境變數，所以 `DATABASE_URL` 通常要像上面這樣直接寫在 crontab 那一行裡（或寫進一個 cron 會讀到的 env 檔）。
 
+### macOS：用 launchd 取代 cron
+
+macOS 上比 cron 順手的做法是 launchd。在 `~/Library/LaunchAgents/` 放一個 plist，登入時自動載入：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.trade-signal.fetch</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/sh</string>
+		<string>-c</string>
+		<string>cd /path/to/trade-signal &amp;&amp; ./.venv/bin/python main.py --symbols BTCUSDT ETHUSDT; ./.venv/bin/python main.py --all</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>DATABASE_URL</key>
+		<string>postgresql://user@localhost:5432/trade_signal</string>
+	</dict>
+	<key>StartInterval</key>
+	<integer>900</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/path/to/trade-signal/fetch.log</string>
+	<key>StandardErrorPath</key>
+	<string>/path/to/trade-signal/fetch.log</string>
+</dict>
+</plist>
+```
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.trade-signal.fetch.plist
+launchctl kickstart -k gui/$(id -u)/com.trade-signal.fetch   # 立刻跑一輪
+launchctl bootout gui/$(id -u)/com.trade-signal.fetch        # 停用
+```
+
+跟 cron 一樣要注意環境變數不會自動帶入，所以 `DATABASE_URL` 寫在 `EnvironmentVariables` 裡。上面範例一輪跑兩批（現貨 + 合約），因為 `main.py` 一次只能抓一種市場——只跑 `--all` 的話現貨資料會停在最後一次手動抓取的時間點不再更新（`docker-compose.yml` 的 `scheduler` 就只跑合約，同樣要注意）。
+
+API 跟前端也可以照這個模式各寫一個 plist（把 `StartInterval` 換成 `KeepAlive`），指令分別是 `./.venv/bin/python -m uvicorn api:app --port 8000` 跟 `./.venv/bin/python -m http.server 5500 -d frontend`。
+
+**專案放在 `~/Desktop`／`~/Documents`／`~/Downloads` 底下的話會撞到 macOS TCC 隱私權限**——launchd 啟動的行程沒有這些目錄的存取權，而且症狀會因為執行檔而異，不容易看出是權限問題：
+
+- `/usr/bin/python3`（系統 Python）跑 `http.server` 會回 404 `No permission to list directory`
+- `.venv/bin/uvicorn` 這種 venv 產生的 wrapper script 會噴 `PermissionError: ... pyvenv.cfg`
+- 但 `.venv/bin/python` 本身可以正常存取——所以上面所有範例都統一走 `./.venv/bin/python -m <module>`，而不是直接呼叫 `uvicorn` 指令
+- plist 裡設 `WorkingDirectory` 會在每次執行時印出 `getcwd: cannot access parent directories` 警告（功能不受影響，純噪音），改成在 `sh -c` 裡 `cd` 就沒有
+
+最乾淨的解法是把專案放在這些受保護目錄之外（例如 `~/dev/`），就完全不用處理上面這些。不然就是去「系統設定 → 隱私權與安全性 → 完全磁碟取用權」加入 `/bin/sh`。
+
 「多久存一次」（cron 排程頻率）跟「每根 K 線代表多長時間」（`--interval`）是兩件獨立的事：上面這行預設還是抓 `--interval 1h` 的 1 小時 K 線，只是每 15 分鐘重新抓一次最新資料——由於 `(symbol, open_time)` 是主鍵，還沒收盤的當前這根 K 線會被同一列覆蓋更新，不會重複。如果要讓存進去的 K 線本身就是 15 分鐘一根，改成 `python main.py --interval 15m` 即可，兩者可以獨立選擇也可以搭配著用。
 
 ## 多空訊號分析（RSI + MACD + 布林通道 + KD + 費波那契回撤）
