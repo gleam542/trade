@@ -26,5 +26,6 @@ dist-ssr
 # Python
 __pycache__/
 *.pyc
+.venv/
 trade-signal/data/
 *.db
