@@ -9,10 +9,13 @@ port during development — lock it down before exposing this beyond your own
 machine.
 """
 
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from backtest import backtest as run_backtest
 from config import DATABASE_URL, DEFAULT_SYMBOLS
@@ -252,3 +255,21 @@ def advise(
         "pick": candidates[0] if candidates else None,
         "candidates": candidates,
     }
+
+
+# 把 frontend/ 掛在根路徑，讓同一個 port 同時吃 API 與頁面。透過隧道
+# （cloudflared 等）對外時只需要一個網址，前端也變成同源、不必依賴上面
+# 那個全開的 CORS。
+#
+# 必須放在檔案最後：mount("/") 會接走所有還沒被比對到的路徑，寫在前面
+# 會把後面註冊的 /api/* 全部蓋掉。
+_FRONTEND_DIR = Path(__file__).parent / "frontend"
+if _FRONTEND_DIR.is_dir():
+    # frontend/ 裡沒有 index.html（頁面叫 console.html，README 各處也都這樣
+    # 寫），所以根路徑自己轉過去，省得複製一份或改檔名。這條要註冊在下面的
+    # mount 之前才會生效。
+    @app.get("/", include_in_schema=False)
+    def _frontend_index():
+        return RedirectResponse("/console.html")
+
+    app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
