@@ -943,7 +943,9 @@
             <div class="confidence-track"><div class="confidence-fill" style="width:${pick.confidence}%"></div></div>
           </div>
         </div>
-        <p class="rec-scope-note">※ 掃描全部追蹤中的交易對（現貨＋合約）後的結果——下方圖表已自動切換到 ${pick.symbol}（${pickMarketLabel}）</p>
+        <p class="rec-scope-note">※ 掃描全部追蹤中的交易對（現貨＋合約）後的結果——下方圖表已自動切換到 ${pick.symbol}（${pickMarketLabel}）${
+          adv.excludedLowSample ? `；另有 ${adv.excludedLowSample} 個因歷史樣本少於 ${adv.minTrades} 筆未列入排名（樣本太少的勝率與報酬率沒有參考價值）` : ""
+        }</p>
         <div class="rec-stats">
           <div class="rec-stat"><span class="label">預計獲利金額</span><span class="value tabular">${adv.expectedProfitUsdt.toFixed(2)} USDT</span></div>
           <div class="rec-stat"><span class="label">目標所需每小時報酬率</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
