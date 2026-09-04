@@ -981,7 +981,9 @@
           <div class="rec-stat"><span class="label">目標所需每小時報酬率</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
           <div class="rec-stat"><span class="label">歷史同方向平均每小時報酬率</span><span class="value tabular">${hasHistory ? stats.avgReturnPct.toFixed(3) + "%／小時" : "樣本不足"}</span></div>
           <div class="rec-stat"><span class="label">歷史同方向勝率</span><span class="value tabular">${hasHistory ? (stats.winRate * 100).toFixed(1) + "% (" + stats.trades + " 次)" : "樣本不足"}</span></div>
-          <div class="rec-stat"><span class="label">止損價位（2×ATR）</span><span class="value tabular">${pick.stopLoss != null ? pick.stopLoss : "—"}</span></div>
+          <div class="rec-stat"><span class="label">參考進場區間（±0.5×ATR）</span><span class="value tabular">${pick.entryLow != null ? fmtPrice(pick.entryLow) + " ~ " + fmtPrice(pick.entryHigh) : "—"}</span></div>
+          <div class="rec-stat"><span class="label">止損價位（2×ATR）</span><span class="value tabular" style="color:var(--critical)">${pick.stopLoss != null ? fmtPrice(pick.stopLoss) : "—"}</span></div>
+          <div class="rec-stat"><span class="label">目標價（風報比 1:2）</span><span class="value tabular" style="color:var(--good)">${pick.takeProfit != null ? fmtPrice(pick.takeProfit) : "—"}</span></div>
         </div>
         <div class="pace-note ${paceClass}">${paceText}</div>
       `;

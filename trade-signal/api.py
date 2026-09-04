@@ -293,6 +293,9 @@ def advise(
                     "reason": latest["reason"],
                     "atr": latest["atr"],
                     "stopLoss": latest["stop_loss"],
+                    "entryLow": latest["entry_low"],
+                    "entryHigh": latest["entry_high"],
+                    "takeProfit": latest["take_profit"],
                     "stats": {
                         "trades": direction_stats["trades"],
                         "winRate": direction_stats["win_rate"],
