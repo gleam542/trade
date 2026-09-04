@@ -312,11 +312,26 @@ def advise(
     ranked = [c for c in candidates if c["stats"]["trades"] >= min_trades]
     excluded = len(candidates) - len(ranked)
 
-    # 信心擺第一：指標同向的比例是「現在這根 K 線」的直接證據，而歷史平均
-    # 報酬是從小樣本估出來的、雜訊大得多。反過來排（達標優先）會讓五項只
-    # 觸發一項的弱訊號，靠著碰巧漂亮的歷史數字壓過四項同向的強訊號。
+    def positive_history(c: dict) -> bool:
+        avg = c["stats"]["avgReturnPct"]
+        return avg is not None and avg > 0
+
+    # 排序四層，由粗到細：
+    #
+    # 1. 歷史平均報酬為正——最低門檻。純看信心會讓「指標很一致但歷史上一直
+    #    做錯」的標的登頂（實測出現過信心 60%、勝率 40.6%、平均 -0.444%/h
+    #    的第一名）。這種沉到最後但不刪除，矛盾的案例本身有參考價值。
+    # 2. 信心——指標同向的比例，是「現在這根 K 線」的直接證據；歷史平均是
+    #    小樣本估計、雜訊大得多，所以證據強度優先於歷史數字。
+    # 3. 是否跟得上目標節奏。
+    # 4. 勝率。
     ranked.sort(
-        key=lambda c: (c["confidence"], meets_pace(c), c["stats"]["winRate"] or -1),
+        key=lambda c: (
+            positive_history(c),
+            c["confidence"],
+            meets_pace(c),
+            c["stats"]["winRate"] or -1,
+        ),
         reverse=True,
     )
 
