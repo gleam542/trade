@@ -1,20 +1,20 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# trade
 
-# Run and deploy your AI Studio app
+這個 repo 裝了兩個各自獨立的專案。
 
-This contains everything you need to run your app locally.
+## `trade-signal/` — 加密貨幣訊號系統
 
-View your app in AI Studio: https://ai.studio/apps/drive/1qE6Gb6TZOrlW5AQxweyGORC0hAxrQMVU
+抓 Binance K 線存進 PostgreSQL，算技術指標、產生多空訊號、回測，並提供 HTTP API 與網頁介面。目前開發中的部分幾乎都在這裡。
 
-## Run Locally
+詳細說明見 [trade-signal/README.md](trade-signal/README.md)。
 
-**Prerequisites:**  Node.js
+## 根目錄 — Aura 電商前端（React + Vite）
 
+一個購物網站的靜態展示（Hero / 商品列表 / 購物車 / 結帳 / Journal），沒有後端，商品資料寫在 `constants.ts` 裡。
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+npm install
+npm run dev
+```
+
+預設跑在 <http://localhost:3000>。
