@@ -236,17 +236,30 @@ def advise(
     capital: float = Query(gt=0),
     profit_pct: float = Query(gt=0),
     hours: float = Query(gt=0),
+    min_trades: int = Query(default=30, ge=0),
 ):
     """Cross-symbol screener: among tracked symbols with a non-neutral
     signal — spot AND futures both, so a symbol tracked in both markets
     (e.g. spot BTCUSDT and futures BTCUSDT) shows up as two independent
-    candidates — rank candidates that historically clear the requested
-    pace (from backtest()'s by_direction breakdown) ahead of ones that
-    don't, then by confidence (|score| / 5) within each tier — so the pick
-    actually responds to capital/profit_pct/hours instead of only
-    annotating a fixed, target-independent ranking. Still not a
-    guarantee: it's "which of these signals historically kept up with
-    this pace," not a forecast."""
+    candidates — rank by confidence (|score| / 5) first, then by whether
+    the direction historically cleared the requested pace, then win rate.
+
+    Two guards against picking noise, both learned the hard way (see the
+    README section on this endpoint):
+
+    - `min_trades` drops candidates whose direction has too few historical
+      trades to mean anything. Screening ~500 symbols and taking the best
+      number is a multiple-comparisons trap: at 25 trades, a 60% win rate
+      happens by pure chance 21% of the time, so across dozens of
+      candidates you are *guaranteed* a great-looking one even if every
+      signal is noise. Pass 0 to disable.
+    - Confidence leads the sort. It used to be pace-first, which let a
+      1-of-5-indicator signal outrank a 4-of-5 one purely because its
+      small historical sample happened to look good.
+
+    Still not a guarantee, and not advice: it's "which of these signals
+    has the most indicators agreeing, among those with enough history to
+    say anything at all," not a forecast."""
     required_hourly_pct = ((1 + profit_pct / 100) ** (1 / hours) - 1) * 100
 
     candidates = []
@@ -293,16 +306,27 @@ def advise(
         avg = c["stats"]["avgReturnPct"]
         return avg is not None and avg >= required_hourly_pct
 
-    candidates.sort(
-        key=lambda c: (meets_pace(c), c["confidence"], c["stats"]["winRate"] or -1),
+    # 樣本太少的直接不列入排名。留著它們只會讓「掃越多、越保證挑到運氣好的
+    # 那個」這件事更嚴重——被排除的數量單獨回報，讓使用者知道篩掉了多少，
+    # 而不是安靜地消失。
+    ranked = [c for c in candidates if c["stats"]["trades"] >= min_trades]
+    excluded = len(candidates) - len(ranked)
+
+    # 信心擺第一：指標同向的比例是「現在這根 K 線」的直接證據，而歷史平均
+    # 報酬是從小樣本估出來的、雜訊大得多。反過來排（達標優先）會讓五項只
+    # 觸發一項的弱訊號，靠著碰巧漂亮的歷史數字壓過四項同向的強訊號。
+    ranked.sort(
+        key=lambda c: (c["confidence"], meets_pace(c), c["stats"]["winRate"] or -1),
         reverse=True,
     )
 
     return {
         "requiredHourlyPct": required_hourly_pct,
         "expectedProfitUsdt": capital * profit_pct / 100,
-        "pick": candidates[0] if candidates else None,
-        "candidates": candidates,
+        "minTrades": min_trades,
+        "excludedLowSample": excluded,
+        "pick": ranked[0] if ranked else None,
+        "candidates": ranked,
     }
 
 
