@@ -1,6 +1,12 @@
 # trade-signal
 
-抓取加密貨幣行情數據存入 PostgreSQL，計算技術指標、產生多空訊號、跑回測，並提供 HTTP API 與網頁介面。
+> signalbench 的核心模組——從 K 線算技術訊號，並誠實檢驗它值不值得相信。
+
+抓 Binance K 線存進 PostgreSQL，用五項技術指標計分產生多空訊號，走查式回測驗證表現（並列出 buy & hold 對照），另附跨市場掃描、HTTP API 與網頁介面。
+
+指標全部純 Python 手算，除了 `requests` / `fastapi` / `psycopg` 之外沒有其他依賴——沒有 TA-Lib、沒有 pandas、沒有 numpy。
+
+**這是規則式的技術分析工具，不下單、不預測、不構成投資建議。** 回測結果顯示這套規則在測試期間跑輸單純買入持有，詳見「回測」一節。
 
 網頁介面（`frontend/console.html`，由 `api.py` 掛在根路徑）分成兩個分頁。
 
