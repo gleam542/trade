@@ -179,6 +179,9 @@ def get_chart(
                 fibLevel=result["fib_level"],
                 fibUptrend=result["fib_uptrend"],
                 trendEma=result["trend_ema"],
+                entryLow=result["entry_low"],
+                entryHigh=result["entry_high"],
+                takeProfit=result["take_profit"],
             )
         bars.append(entry)
     return {"symbol": symbol, "bars": bars}
@@ -290,6 +293,9 @@ def advise(
                     "reason": latest["reason"],
                     "atr": latest["atr"],
                     "stopLoss": latest["stop_loss"],
+                    "entryLow": latest["entry_low"],
+                    "entryHigh": latest["entry_high"],
+                    "takeProfit": latest["take_profit"],
                     "stats": {
                         "trades": direction_stats["trades"],
                         "winRate": direction_stats["win_rate"],

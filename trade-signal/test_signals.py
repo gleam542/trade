@@ -87,6 +87,63 @@ def test_series_disabled_filter_does_emit_shorts():
     assert [b for b in series if b["signal"] == "short"], "關閉過濾後應該看得到做空訊號"
 
 
+# --- 進場區間 / 目標價 / 價格精度 ---
+
+def _uptrend_with_signal(n=200):
+    """上升趨勢 + 尾端急拉，讓最後一根觸發訊號（才會有進出場價位）。"""
+    closes = [100 + i * 0.5 for i in range(n - 5)] + [140, 150, 165, 180, 200]
+    highs = [c * 1.02 for c in closes]
+    lows = [c * 0.98 for c in closes]
+    return closes, highs, lows
+
+
+def test_entry_zone_brackets_the_close():
+    closes, highs, lows = _uptrend_with_signal()
+    r = generate_signal(closes, highs=highs, lows=lows)
+    if r["signal"] == "neutral":
+        return  # 這份合成資料沒觸發訊號，本測試不適用
+    c = closes[-1]
+    assert r["entry_low"] < c < r["entry_high"], (r["entry_low"], c, r["entry_high"])
+
+
+def test_risk_reward_matches_setting():
+    closes, highs, lows = _uptrend_with_signal()
+    r = generate_signal(closes, highs=highs, lows=lows, target_risk_reward=3.0)
+    if r["signal"] == "neutral":
+        return
+    c = closes[-1]
+    risk = abs(c - r["stop_loss"])
+    reward = abs(r["take_profit"] - c)
+    assert abs(reward / risk - 3.0) < 0.01, f"風報比應為 1:3，得到 1:{reward/risk:.2f}"
+
+
+def test_neutral_has_no_entry_or_target():
+    # 觀望時不該給進出場價位——沒有方向就沒有「進場」可言
+    flat = [100.0] * 200
+    r = generate_signal(flat, highs=[100.0] * 200, lows=[100.0] * 200)
+    assert r["signal"] == "neutral"
+    assert r["entry_low"] is None and r["take_profit"] is None
+
+
+def test_small_price_keeps_precision():
+    """幣價 0.01 級時，固定 4 位小數會把 0.010041 壓成 0.01（誤差 0.8%），
+    止損與風報比就全歪了。這裡確認改用有效位數之後小數點後還留得住東西。"""
+    scale = 0.0001
+    closes = [(100 + i * 0.5) * scale for i in range(195)] + [
+        x * scale for x in (140, 150, 165, 180, 200)
+    ]
+    highs = [c * 1.02 for c in closes]
+    lows = [c * 0.98 for c in closes]
+    r = generate_signal(closes, highs=highs, lows=lows)
+    if r["signal"] == "neutral":
+        return
+    c = closes[-1]
+    risk = abs(c - r["stop_loss"])
+    reward = abs(r["take_profit"] - c)
+    assert risk > 0, "止損被四捨五入成與收盤價相同，精度已流失"
+    assert abs(reward / risk - 2.0) < 0.01, f"小價格下風報比失真：1:{reward/risk:.2f}"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

@@ -116,6 +116,16 @@ def _decide(
     return decision, score, reasons
 
 
+def _price(v: float | None) -> float | None:
+    """價格四捨五入到 6 位有效數字，而不是固定 6 位小數。
+
+    幣價跨了好幾個數量級：BTCUSDT 是 80889.7，CTRUSDT 是 0.010041。原本
+    統一用 `round(x, 4)`，前者沒事，後者直接變成 0.01——誤差 0.8%，止損
+    與風報比全部算歪。有效位數對兩端都準。
+    """
+    return None if v is None else float(f"{v:.6g}")
+
+
 _EMPTY_RESULT = {
     "signal": "neutral",
     "score": 0,
@@ -134,6 +144,9 @@ _EMPTY_RESULT = {
     "fib_level": None,
     "fib_uptrend": None,
     "trend_ema": None,
+    "entry_low": None,
+    "entry_high": None,
+    "take_profit": None,
 }
 
 
@@ -159,6 +172,8 @@ def generate_signal_series(
     fib_lookback: int = 55,
     fib_tolerance_pct: float = 0.05,
     trend_period: int = 100,
+    atr_entry_band: float = 0.5,
+    target_risk_reward: float = 2.0,
 ) -> list[dict]:
     """The result `generate_signal(closes[: i + 1], highs[: i + 1], lows[: i + 1])`
     would give at every bar `i`, computed for the whole series in one pass
@@ -255,12 +270,23 @@ def generate_signal_series(
 
         atr_value = None
         stop_loss = None
+        entry_low = entry_high = take_profit = None
         if have_hl and i >= atr_offset:
             atr_value = atr_values[i - atr_offset]
-            if decision == "long":
-                stop_loss = latest_close - atr_stop_multiplier * atr_value
-            elif decision == "short":
-                stop_loss = latest_close + atr_stop_multiplier * atr_value
+            if decision in ("long", "short"):
+                # 進場區間：以訊號當根收盤為中心、上下各半個 ATR。表達的是
+                # 「這支標的目前的波動下，跟訊號價差不多的範圍」，不是預測
+                # 會回到哪裡——回測是以收盤價進場的，所以這個區間刻意涵蓋
+                # 收盤價本身，數字才對得上。
+                entry_low = latest_close - atr_entry_band * atr_value
+                entry_high = latest_close + atr_entry_band * atr_value
+                risk = atr_stop_multiplier * atr_value
+                if decision == "long":
+                    stop_loss = latest_close - risk
+                    take_profit = latest_close + risk * target_risk_reward
+                else:
+                    stop_loss = latest_close + risk
+                    take_profit = latest_close - risk * target_risk_reward
 
         fib_swing_high, fib_swing_low, fib_level, fib_uptrend = None, None, None, None
         if fib_levels is not None:
@@ -279,17 +305,20 @@ def generate_signal_series(
                 "rsi": round(latest_rsi, 2),
                 "macd": round(macd_now, 6),
                 "macd_signal": round(signal_now, 6),
-                "bb_upper": round(upper_band, 4),
-                "bb_lower": round(lower_band, 4),
-                "atr": round(atr_value, 4) if atr_value is not None else None,
-                "stop_loss": round(stop_loss, 4) if stop_loss is not None else None,
+                "bb_upper": _price(upper_band),
+                "bb_lower": _price(lower_band),
+                "atr": _price(atr_value),
+                "stop_loss": _price(stop_loss),
                 "kd_k": round(latest_k, 2) if latest_k is not None else None,
                 "kd_d": round(latest_d, 2) if latest_d is not None else None,
-                "fib_swing_high": round(fib_swing_high, 4) if fib_swing_high is not None else None,
-                "fib_swing_low": round(fib_swing_low, 4) if fib_swing_low is not None else None,
-                "fib_level": round(fib_level, 4) if fib_level is not None else None,
+                "fib_swing_high": _price(fib_swing_high),
+                "fib_swing_low": _price(fib_swing_low),
+                "fib_level": _price(fib_level),
                 "fib_uptrend": fib_uptrend,
-                "trend_ema": round(trend_now, 4) if trend_now is not None else None,
+                "trend_ema": _price(trend_now),
+                "entry_low": _price(entry_low),
+                "entry_high": _price(entry_high),
+                "take_profit": _price(take_profit),
             }
         )
 
@@ -318,6 +347,8 @@ def generate_signal(
     fib_lookback: int = 55,
     fib_tolerance_pct: float = 0.05,
     trend_period: int = 100,
+    atr_entry_band: float = 0.5,
+    target_risk_reward: float = 2.0,
 ) -> dict:
     """`highs`/`lows` are optional (same length as `closes`) — pass them to
     also get an ATR-based stop-loss price, the KD (stochastic) oscillator,
@@ -352,4 +383,6 @@ def generate_signal(
         fib_lookback,
         fib_tolerance_pct,
         trend_period,
+        atr_entry_band,
+        target_risk_reward,
     )[-1]

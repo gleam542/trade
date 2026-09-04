@@ -413,6 +413,7 @@
         <li><span class="key area" style="background:var(--series-band)"></span>布林通道 (20, 2σ)</li>
         <li><span class="key" style="background:var(--series-rsi)"></span>費波 61.8% 回撤位</li>
         <li><span class="key" style="background:var(--series-trend)"></span>EMA100（趨勢過濾）</li>
+        <li><span class="key area" style="background:var(--accent)"></span>參考進場區間</li>
         <li><span class="key tri-up"></span>做多訊號</li>
         <li><span class="key tri-down"></span>做空訊號</li>
       </ul>
@@ -597,6 +598,12 @@
       min = Math.min(min, last.fibLevel);
       max = Math.max(max, last.fibLevel);
     }
+    // 目標價可能離現價很遠（2 倍風險距離），不納入範圍就會被裁掉
+    const hasTrade = last.entryLow != null && (last.signal === "long" || last.signal === "short");
+    if (hasTrade) {
+      min = Math.min(min, last.entryLow, last.takeProfit);
+      max = Math.max(max, last.entryHigh, last.takeProfit);
+    }
     // 整條 EMA 都要納入範圍（不只最後一根）——它是條完整的線，
     // 趨勢轉折時可能跑到價格區間外面去。
     const trendVals = data.map((d) => d.trendEma).filter((v) => v != null);
@@ -643,6 +650,22 @@
         : `${cx - half},${(cy - h2 / 2).toFixed(2)} ${cx + half},${(cy - h2 / 2).toFixed(2)} ${cx},${(cy + h2 / 2).toFixed(2)}`;
       priceSvg.appendChild(el("polygon", { points, fill: isLong ? "var(--good)" : "var(--critical)" }));
     });
+
+    // 進場區間畫成一條帶狀，目標價畫成一條線——跟止損那條放在一起才看得出
+    // 「風險多遠、報酬多遠」的比例。畫在訊號三角形之後、止損之前。
+    if (hasTrade) {
+      const yHigh = y(last.entryHigh), yLow = y(last.entryLow);
+      priceSvg.appendChild(el("rect", {
+        x: padL, y: Math.min(yHigh, yLow).toFixed(2),
+        width: W - padL - padR, height: Math.abs(yLow - yHigh).toFixed(2),
+        fill: "var(--accent)", opacity: 0.14,
+      }));
+      const tpY = y(last.takeProfit);
+      priceSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: tpY.toFixed(2), y2: tpY.toFixed(2), stroke: "var(--good)", "stroke-width": 1.5, "stroke-dasharray": "5 3", opacity: 0.75 }));
+      const tpLabel = el("text", { x: padL + 4, y: (tpY - 4).toFixed(2), "font-size": 9, style: "fill:var(--good)" });
+      tpLabel.textContent = `目標 ${fmtPrice(last.takeProfit)}`;
+      priceSvg.appendChild(tpLabel);
+    }
 
     if (hasStopLoss) {
       const slY = y(last.stopLoss);
@@ -760,6 +783,12 @@
           return `<div class="stat"><span class="label">EMA100（趨勢）</span><span class="value tabular" style="color:${color}">${fmtPrice(last.trendEma)} ${above ? "▲" : "▼"}</span></div>`;
         })()
       : "";
+    // 進場區間／目標價只在有方向時存在（觀望沒有「進場」可言）。這三個
+    // 都是 ATR 的算術，跟止損同一個基礎，不是預測價格會走到哪裡。
+    const tradeTiles = last.entryLow != null
+      ? `<div class="stat"><span class="label">參考進場區間（±0.5×ATR）</span><span class="value tabular">${fmtPrice(last.entryLow)} ~ ${fmtPrice(last.entryHigh)}</span></div>
+         <div class="stat"><span class="label">目標價（風報比 1:2）</span><span class="value tabular" style="color:var(--good)">${fmtPrice(last.takeProfit)}</span></div>`
+      : "";
     summaryStrip.innerHTML = `
       <div class="signal-pill" data-state="${state}">
         <span class="eyebrow">最新判斷</span>
@@ -771,6 +800,7 @@
         ${kdTile}
         ${trendTile}
         <div class="stat"><span class="label">總分</span><span class="value tabular">${last.score > 0 ? "+" + last.score : last.score}</span></div>
+        ${tradeTiles}
         ${stopLossTile}
       </div>
       <div class="reason-line">理由：<b>${reasonText}</b></div>
@@ -951,7 +981,9 @@
           <div class="rec-stat"><span class="label">目標所需每小時報酬率</span><span class="value tabular">${adv.requiredHourlyPct.toFixed(3)}%／小時</span></div>
           <div class="rec-stat"><span class="label">歷史同方向平均每小時報酬率</span><span class="value tabular">${hasHistory ? stats.avgReturnPct.toFixed(3) + "%／小時" : "樣本不足"}</span></div>
           <div class="rec-stat"><span class="label">歷史同方向勝率</span><span class="value tabular">${hasHistory ? (stats.winRate * 100).toFixed(1) + "% (" + stats.trades + " 次)" : "樣本不足"}</span></div>
-          <div class="rec-stat"><span class="label">止損價位（2×ATR）</span><span class="value tabular">${pick.stopLoss != null ? pick.stopLoss : "—"}</span></div>
+          <div class="rec-stat"><span class="label">參考進場區間（±0.5×ATR）</span><span class="value tabular">${pick.entryLow != null ? fmtPrice(pick.entryLow) + " ~ " + fmtPrice(pick.entryHigh) : "—"}</span></div>
+          <div class="rec-stat"><span class="label">止損價位（2×ATR）</span><span class="value tabular" style="color:var(--critical)">${pick.stopLoss != null ? fmtPrice(pick.stopLoss) : "—"}</span></div>
+          <div class="rec-stat"><span class="label">目標價（風報比 1:2）</span><span class="value tabular" style="color:var(--good)">${pick.takeProfit != null ? fmtPrice(pick.takeProfit) : "—"}</span></div>
         </div>
         <div class="pace-note ${paceClass}">${paceText}</div>
       `;
