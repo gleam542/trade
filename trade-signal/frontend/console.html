@@ -341,7 +341,7 @@
 
   <div class="local-banner">
     <span>ℹ</span>
-    <span>此頁面需要 <b>本機執行的 API 伺服器</b> 才能顯示資料：先 <code>cd trade-signal &amp;&amp; python main.py</code> 抓資料，再 <code>uvicorn api:app --reload --port 8000</code> 啟動 API，最後直接用瀏覽器開啟這個檔案（或用任何靜態伺服器）。這個檔案<b>不是</b>透過 Claude Artifact 發布的頁面——那個版本連不到你本機的伺服器。</span>
+    <span>此頁面需要 <b>本機執行的 API 伺服器</b> 才能顯示資料：先 <code>cd trade-signal &amp;&amp; python main.py</code> 抓資料，再 <code>uvicorn api:app --port 8000</code> 啟動 API，然後開啟 <code>http://localhost:8000/</code>。</span>
   </div>
 
   <div class="error-banner" id="errorBanner">

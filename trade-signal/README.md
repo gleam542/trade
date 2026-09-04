@@ -280,8 +280,6 @@ API_PASSWORD='你自己想一個密碼' ./.venv/bin/python -m uvicorn api:app --
 
 所以兩者顯示不同交易對、甚至方向相反都是正常的，不是同一件事互相矛盾。
 
-> 這跟你可能在對話裡看到的 Claude Artifact 版「Signal Console」是兩個東西：Artifact 版本裡的資料是寫死內嵌的示範資料，而且託管在 Claude 的網頁沙盒環境裡，基於安全限制連不到你本機的 API；`frontend/console.html` 才是真正串接這支 API 的版本，但只能在你本機（或你部署 API 的地方）打開才會有資料。
-
 ## Docker
 
 也可以用 Docker 跑 API＋資料庫，不用自己裝 Python 或 PostgreSQL。
