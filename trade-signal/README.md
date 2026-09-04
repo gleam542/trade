@@ -1,8 +1,19 @@
 # trade-signal
 
-抓取加密貨幣行情數據並存入 PostgreSQL 資料庫，之後可以基於這些數據做多空分析。
+抓取加密貨幣行情數據存入 PostgreSQL，計算技術指標、產生多空訊號、跑回測，並提供 HTTP API 與網頁介面。
 
-目前階段：只做資料收集（K 線 OHLCV），分析邏輯之後再加。
+![Signal Console](docs/console.png)
+
+網頁介面（`frontend/console.html`，由 `api.py` 掛在根路徑）：左邊是最新判斷與各項指標讀數，圖表疊上布林通道、EMA100 趨勢線、費波那契回撤位，三角形標出每一根 K 線當下會發出的訊號；往下還有 RSI、KD、MACD 三張子圖與逐根數值的原始資料表。
+
+<details>
+<summary>API 文件（<code>/docs</code>，FastAPI 自動產生）</summary>
+
+![API docs](docs/api-docs.png)
+
+</details>
+
+> 截圖裡的埠號是產生截圖時的臨時實例，照下面說明啟動的話是 `8000`。
 
 ## 資料來源
 
