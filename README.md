@@ -4,6 +4,21 @@
 
 抓 Binance 的 K 線存進 PostgreSQL，用五項技術指標計分產生多空訊號，然後——這才是重點——用走查式回測告訴你這些訊號在歷史上到底有沒有用。附一個 HTTP API 與網頁介面。
 
+**策略試算**——掃描全市場，附訊號方向、信心率、該方向的歷史勝率與平均每小時報酬率，以及參考進場區間、止損與目標價。目標高於歷史節奏時會直接說出來，樣本太少的候選也會標明排除了幾個：
+
+![策略試算](trade-signal/docs/console.png)
+
+**交易對**——價格圖疊上布林通道、EMA100 趨勢線與費波那契回撤位，三角形標出每根 K 線當下會發出的訊號；滑鼠移上去顯示那一根的所有指標讀數，四張圖十字線同步：
+
+![價格圖與指標](trade-signal/docs/chart.png)
+
+<details>
+<summary>API 文件（<code>/docs</code>，FastAPI 自動產生）</summary>
+
+![API docs](trade-signal/docs/api-docs.png)
+
+</details>
+
 ## 這個專案做什麼
 
 | | |
