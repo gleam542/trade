@@ -4,7 +4,7 @@
 
 ![Signal Console](docs/console.png)
 
-網頁介面（`frontend/console.html`，由 `api.py` 掛在根路徑）：左邊是最新判斷與各項指標讀數，圖表疊上布林通道、EMA100 趨勢線、費波那契回撤位，三角形標出每一根 K 線當下會發出的訊號；往下還有 RSI、KD、MACD 三張子圖與逐根數值的原始資料表。
+網頁介面（`frontend/console.html`，由 `api.py` 掛在根路徑）。上圖是「策略試算」分頁：輸入本金、目標盈利與預計小時數，掃描全部追蹤中的交易對，列出訊號方向、信心率，以及那個方向的歷史勝率與平均每小時報酬率——並在目標高於歷史節奏時直接說出來。切到交易對分頁則是價格圖（疊上布林通道、EMA100 趨勢線、費波那契回撤位，三角形標出每根 K 線當下會發出的訊號）加 RSI、KD、MACD 三張子圖與逐根數值的原始資料表。
 
 <details>
 <summary>API 文件（<code>/docs</code>，FastAPI 自動產生）</summary>
@@ -12,8 +12,6 @@
 ![API docs](docs/api-docs.png)
 
 </details>
-
-> 截圖裡的埠號是產生截圖時的臨時實例，照下面說明啟動的話是 `8000`。
 
 ## 資料來源
 
