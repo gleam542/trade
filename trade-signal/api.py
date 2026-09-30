@@ -64,7 +64,11 @@ def _credentials_ok(header: str | None) -> bool:
         user, _, password = decoded.partition(":")
     except (ValueError, UnicodeDecodeError):
         return False
-    return secrets.compare_digest(user, _AUTH_USER) and secrets.compare_digest(password, _AUTH_PASSWORD)
+    # compare_digest 收到 str 時只接受 ASCII，碰到中文密碼（或有人在登入框打中文）
+    # 會直接丟 TypeError 變成 500。先轉成 UTF-8 bytes 就沒有這個限制。
+    return secrets.compare_digest(user.encode(), _AUTH_USER.encode()) and secrets.compare_digest(
+        password.encode(), _AUTH_PASSWORD.encode()
+    )
 
 
 # 認證寫成 middleware 而不是 app 層級的 dependency：dependency 不會套用到
